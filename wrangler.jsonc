@@ -1,0 +1,23 @@
+{
+  "name": "klaretail-dispatch-worker",
+  "main": "src/queue/consumer.ts",
+  "compatibility_date": "2026-10-23",
+  "compatibility_flags": ["nodejs_compat"],
+  "queues": {
+    "producers": [
+      {
+        "binding": "DISPATCH_QUEUE",
+        "queue": "klaretail-rider-dispatch"
+      }
+    ],
+    "consumers": [
+      {
+        "queue": "klaretail-rider-dispatch",
+        "max_batch_size": 10,
+        "max_batch_timeout": 5,
+        "max_retries": 3,
+        "dead_letter_queue": "klaretail-rider-dispatch-dlq"
+      }
+    ]
+  }
+}
