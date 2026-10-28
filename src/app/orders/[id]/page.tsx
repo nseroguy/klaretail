@@ -1,168 +1,188 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
-import { useParams } from 'next/navigation';
-import Link from 'next/link';
-import { 
-  KeyRound, 
-  MapPin, 
-  Phone, 
-  ShieldCheck, 
-  CheckCircle2, 
-  ArrowLeft, 
-  RefreshCw,
-  UserCheck,
-  Bike
-} from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { useParams, useRouter } from 'next/navigation';
+import { RefreshCw, MapPin, Phone } from 'lucide-react';
+import OrderTrackingMap from '@/components/orders/OrderTrackingMap';
 
 export default function OrderTrackingPage() {
   const params = useParams();
+  const router = useRouter();
   const orderId = params?.id as string;
 
   const [order, setOrder] = useState<any>(null);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
 
-  const fetchOrder = async () => {
+  const fetchStatus = async () => {
+    if (!orderId) return;
+    setRefreshing(true);
     try {
       const res = await fetch(`/api/orders/${orderId}`);
       const data = await res.json();
-      if (!res.ok || !data.success) {
-        throw new Error(data.message || 'Order not found');
+      if (data.success) {
+        setOrder(data.order);
       }
-      setOrder(data.order);
-    } catch (err: any) {
-      setError(err.message);
+    } catch (err) {
+      console.error('Failed to fetch order status:', err);
     } finally {
       setLoading(false);
+      setRefreshing(false);
     }
   };
 
   useEffect(() => {
-    if (orderId) fetchOrder();
-    const interval = setInterval(() => {
-      if (orderId) fetchOrder();
-    }, 8000);
+    fetchStatus();
+    const interval = setInterval(fetchStatus, 8000);
     return () => clearInterval(interval);
   }, [orderId]);
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-[#0C0F0E] text-white flex items-center justify-center p-4">
-        <div className="flex items-center gap-3 text-xs font-mono text-neutral-400">
-          <RefreshCw className="w-4 h-4 animate-spin text-emerald-400" />
-          <span>Loading delivery manifest...</span>
-        </div>
+      <div className="flex min-h-screen items-center justify-center bg-zinc-950 text-zinc-400 text-sm">
+        Locating Order Details...
       </div>
     );
   }
 
-  if (error || !order) {
+  if (!order) {
     return (
-      <div className="min-h-screen bg-[#0C0F0E] text-white flex flex-col items-center justify-center p-4">
-        <p className="text-sm text-rose-400 mb-4">{error || 'Order not found'}</p>
-        <Link href="/" className="px-4 py-2 bg-emerald-600 rounded-xl text-xs font-bold text-white">
-          Back to Store
-        </Link>
+      <div className="flex min-h-screen flex-col items-center justify-center bg-zinc-950 p-6 text-center text-zinc-300">
+        <p className="text-base font-semibold">Order not found</p>
+        <button
+          onClick={() => router.push('/')}
+          className="mt-4 rounded-xl bg-emerald-600 px-4 py-2 text-xs font-semibold text-white"
+        >
+          Return to Store
+        </button>
       </div>
     );
   }
 
-  const isDelivered = order.status === 'delivered';
-  const hasRider = Boolean(order.rider);
+  const steps = [
+    { key: 'created', label: 'Order Received', desc: 'Order confirmed by vendor' },
+    { key: 'rider_assigned', label: 'Courier Dispatched', desc: 'Courier picked up and en route' },
+    { key: 'delivered', label: 'Delivered', desc: 'Handover verified via PIN' },
+  ];
+
+  const currentStepIdx = order.status === 'delivered' ? 2 : order.status === 'rider_assigned' ? 1 : 0;
 
   return (
-    <div className="min-h-screen bg-[#0C0F0E] text-[#ECEEEB] py-8 px-4 sm:px-6">
-      <div className="max-w-2xl mx-auto space-y-6">
+    <div className="min-h-screen bg-zinc-950 font-sans text-zinc-100 pb-12">
+      <div className="mx-auto max-w-xl p-4 space-y-4">
         
-        {/* Header Navigation */}
-        <div className="flex items-center justify-between">
-          <Link href="/" className="inline-flex items-center gap-1.5 text-xs font-bold text-neutral-400 hover:text-white transition">
-            <ArrowLeft className="w-4 h-4" />
-            Back to Store
-          </Link>
-          <span className="text-xs font-mono font-bold text-neutral-400">
-            Order #{order.orderNumber}
-          </span>
-        </div>
-
-        {/* 1. Amber Handshake PIN Card */}
-        <div className="bg-[#141916] border border-amber-500/40 rounded-3xl p-6 text-center space-y-4 shadow-xl relative overflow-hidden">
-          <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-amber-600 via-amber-400 to-amber-600" />
-          
-          <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-amber-950/70 text-amber-300 border border-amber-700/60 text-xs font-bold">
-            <KeyRound className="w-3.5 h-3.5" />
-            <span>Delivery Verification PIN</span>
-          </div>
-
+        {/* Header */}
+        <div className="flex items-center justify-between border-b border-zinc-800 pb-3">
           <div>
-            <div className="text-5xl font-black font-mono tracking-widest text-white mt-1">
-              {order.deliveryPin || '••••'}
-            </div>
-            <p className="text-xs text-neutral-400 mt-2 max-w-md mx-auto">
-              Share this 4-digit code with the courier <strong className="text-white">only after</strong> inspecting your items and handing over cash.
-            </p>
-          </div>
-
-          <div className="pt-3 border-t border-[#232D27] flex justify-between items-center text-xs">
-            <span className="text-neutral-400">Cash Due on Arrival:</span>
-            <span className="font-mono font-black text-amber-400 text-base">
-              UGX {Number(order.codAmountDue || order.totalAmount).toLocaleString()}
+            <span className="text-[11px] font-mono font-bold text-emerald-400 uppercase tracking-wider">
+              Live Order Tracking
             </span>
+            <h1 className="text-lg font-black text-white">Order #{order.orderNumber}</h1>
+          </div>
+          <button
+            onClick={fetchStatus}
+            disabled={refreshing}
+            className="flex items-center gap-1 rounded-lg border border-zinc-700 bg-zinc-900 px-2.5 py-1.5 text-xs text-zinc-300 hover:bg-zinc-800 transition"
+          >
+            <RefreshCw className={`h-3.5 w-3.5 ${refreshing ? 'animate-spin' : ''}`} />
+            <span>Update</span>
+          </button>
+        </div>
+
+        {/* Live Interactive Transit Map */}
+        <OrderTrackingMap
+          status={order.status}
+          customerCoords={{ lat: 0.3644, lng: 32.6515, address: order.deliveryAddress }}
+          vendorCoords={{ lat: 0.3689, lng: 32.6288, name: order.vendorName }}
+          riderCoords={{ lat: 0.3665, lng: 32.6395, name: order.riderName }}
+        />
+
+        {/* PIN Banner */}
+        <div className="rounded-2xl border border-emerald-500/30 bg-emerald-950/40 p-4 text-center">
+          <p className="text-xs font-semibold uppercase tracking-wider text-emerald-400">
+            Delivery Handover PIN
+          </p>
+          <p className="my-1 font-mono text-4xl font-black tracking-widest text-white">
+            {order.deliveryPin}
+          </p>
+          <p className="text-[11px] text-zinc-400">
+            Give this 4-digit code to your courier upon arrival to confirm delivery.
+          </p>
+        </div>
+
+        {/* Milestones */}
+        <div className="rounded-2xl border border-zinc-800 bg-zinc-900 p-5 space-y-4">
+          <h2 className="text-xs font-bold uppercase tracking-wider text-zinc-400">Delivery Status</h2>
+          <div className="space-y-4">
+            {steps.map((st, i) => {
+              const isDone = i <= currentStepIdx;
+              const isCurrent = i === currentStepIdx;
+              return (
+                <div key={st.key} className="flex items-start gap-3">
+                  <div
+                    className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-xs font-bold transition ${
+                      isDone
+                        ? 'bg-emerald-600 text-white'
+                        : 'border border-zinc-700 bg-zinc-950 text-zinc-500'
+                    }`}
+                  >
+                    {isDone ? '✓' : i + 1}
+                  </div>
+                  <div>
+                    <p className={`text-sm font-semibold ${isCurrent ? 'text-emerald-400' : isDone ? 'text-white' : 'text-zinc-500'}`}>
+                      {st.label}
+                    </p>
+                    <p className="text-xs text-zinc-400">{st.desc}</p>
+                  </div>
+                </div>
+              );
+            })}
           </div>
         </div>
 
-        {/* 2. Manual Dispatch & Courier Assignment Card */}
-        <div className="bg-[#121614] border border-[#1E2521] rounded-3xl p-6 space-y-4">
-          <h3 className="text-sm font-bold text-white flex items-center justify-between">
-            <span className="flex items-center gap-2">
-              <Bike className="w-4 h-4 text-emerald-400" />
-              Courier & Delivery Assignment
-            </span>
-            <span className="text-xs font-mono font-semibold px-2.5 py-0.5 rounded-full bg-neutral-800 text-neutral-300">
-              {order.status.toUpperCase()}
-            </span>
-          </h3>
-
-          {hasRider ? (
-            <div className="p-4 rounded-2xl bg-[#171E1A] border border-[#232D26] flex items-center justify-between">
+        {/* Courier Details Card */}
+        {order.riderName && (
+          <div className="rounded-2xl border border-zinc-800 bg-zinc-900 p-4 shadow-sm space-y-3">
+            <h2 className="text-xs font-bold uppercase tracking-wider text-zinc-400">Assigned Courier</h2>
+            <div className="flex items-center justify-between">
               <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-full bg-emerald-950 text-emerald-400 border border-emerald-800 flex items-center justify-center font-bold">
-                  {order.rider.name.charAt(0)}
+                <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-emerald-500/10 text-xl text-emerald-400 border border-emerald-500/20">
+                  🛵
                 </div>
                 <div>
-                  <h4 className="text-xs font-bold text-white">{order.rider.name}</h4>
-                  <p className="text-[11px] text-neutral-400">Assigned Delivery Courier</p>
-                  <p className="text-[11px] font-mono text-emerald-400">{order.rider.vehiclePlate}</p>
+                  <p className="text-sm font-bold text-white">{order.riderName}</p>
+                  <p className="font-mono text-xs text-zinc-400">Plate: {order.riderPlate || 'Boda Boda'}</p>
                 </div>
               </div>
-              <a
-                href={`tel:${order.rider.phone}`}
-                className="px-3 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-[#0C0F0E] text-xs font-bold flex items-center gap-1.5 transition"
-              >
-                <Phone className="w-3.5 h-3.5" />
-                <span>Call Courier</span>
-              </a>
+              {order.riderPhone && (
+                <a
+                  href={`tel:${order.riderPhone}`}
+                  className="flex items-center gap-1.5 rounded-xl bg-emerald-600 px-3.5 py-2 text-xs font-bold text-white shadow hover:bg-emerald-500 transition"
+                >
+                  <Phone className="h-3.5 w-3.5" /> Call Courier
+                </a>
+              )}
             </div>
-          ) : (
-            <div className="p-4 rounded-2xl bg-[#151917] border border-[#202723] text-xs text-neutral-400 flex items-center gap-3">
-              <UserCheck className="w-5 h-5 text-emerald-500 shrink-0" />
-              <div>
-                <p className="font-semibold text-white">Order Queued in Area Dispatch Manifest</p>
-                <p className="text-[11px] text-neutral-400 mt-0.5">
-                  A dispatch agent or vendor in your corridor is assigning a designated rider.
-                </p>
-              </div>
-            </div>
-          )}
-        </div>
+          </div>
+        )}
 
-        {/* 3. Escrow Handshake Protection Guarantee */}
-        <div className="p-4 rounded-2xl bg-[#0E1311] border border-[#19221D] flex items-center gap-3 text-xs text-neutral-400">
-          <ShieldCheck className="w-5 h-5 text-emerald-500 shrink-0" />
-          <p>
-            <strong>100% Buyer Protection:</strong> Cash is only released when your unique Handshake PIN is validated on the courier device.
-          </p>
+        {/* Drop-off & Payment Info */}
+        <div className="rounded-2xl border border-zinc-800 bg-zinc-900 p-4 space-y-2 text-xs">
+          <div className="flex items-start gap-2 text-zinc-300">
+            <MapPin className="h-4 w-4 shrink-0 text-emerald-400 mt-0.5" />
+            <div>
+              <p className="font-semibold text-white">Delivery Drop-Off</p>
+              <p className="text-zinc-400">{order.deliveryAddress || 'Kampala Drop-off'}</p>
+            </div>
+          </div>
+          <div className="flex justify-between border-t border-zinc-800/80 pt-2 text-zinc-400">
+            <span>Payment Method:</span>
+            <span className="font-bold text-white uppercase">{order.paymentMethod}</span>
+          </div>
+          <div className="flex justify-between text-zinc-400">
+            <span>Total Amount:</span>
+            <span className="font-mono font-bold text-emerald-400">UGX {Number(order.totalAmount).toLocaleString()}</span>
+          </div>
         </div>
 
       </div>

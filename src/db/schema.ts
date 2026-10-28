@@ -1,3 +1,37 @@
+export const posShiftStatusEnum = pgEnum("pos_shift_status", ["open", "closed"]);
+
+export const staffVerificationStatusEnum = pgEnum("staff_verification_status", [
+  "unverified",
+  "pending",
+  "verified",
+  "rejected",
+]);
+
+export const vendorStaffRoleEnum = pgEnum("vendor_staff_role", [
+  "vendor_admin",
+  "cashier",
+  "kitchen_staff",
+  "waiter",
+]);
+
+export const vendorSectorEnum = pgEnum("vendor_sector_type", [
+  "food_beverage",
+  "retail_commerce",
+]);
+
+export const vendorSubCategoryEnum = pgEnum("vendor_sub_category_type", [
+  "restaurant",
+  "fast_food",
+  "retail",
+  "wholesale",
+]);
+
+export const restaurantServiceTypeEnum = pgEnum("restaurant_service_type", [
+  "quick_service",
+  "dine_in_hybrid",
+  "table_service_only",
+]);
+
 import {
   pgTable,
   uuid,
@@ -12,7 +46,9 @@ import {
   uniqueIndex,
   index,
   check,
-} from 'drizzle-orm/pg-core';
+  unique,
+  primaryKey,
+} from "drizzle-orm/pg-core";
 import { relations, sql } from 'drizzle-orm';
 
 // ==========================================
@@ -130,7 +166,14 @@ export const vendors = pgTable(
     latitude: numeric('latitude', { precision: 9, scale: 6 }).notNull(),
     longitude: numeric('longitude', { precision: 9, scale: 6 }).notNull(),
     defaultSlotCapacity: integer('default_slot_capacity').default(5).notNull(),
-    isAcceptingOrders: boolean('is_accepting_orders').default(true).notNull(),
+    isAcceptingOrders: boolean("is_accepting_orders"),
+  serviceType: restaurantServiceTypeEnum("service_type").default("dine_in_hybrid"),
+  sector: vendorSectorEnum("sector").default("food_beverage").notNull(),
+  subCategory: vendorSubCategoryEnum("sub_category").default("restaurant").notNull(),
+  enableTableOrdering: boolean("enable_table_ordering").default(true),
+  enableQrOrdering: boolean("enable_qr_ordering").default(true),
+    isApproved: boolean("is_approved").default(false),
+    status: varchar("status", { length: 50 }).default("pending_approval"),
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   },
   (table) => [
@@ -163,13 +206,122 @@ export const deliverySlots = pgTable(
   ]
 );
 
+export const orderFulfillmentTypeEnum = pgEnum("order_fulfillment_type", [
+  "delivery",
+  "pickup",
+  "walk_in",
+]);
+
+
+// --- RESTAURANT TABLES & MODIFIERS ---
+export const tableSessionStatusEnum = pgEnum("table_session_status", [
+  "open",
+  "bill_requested",
+  "settled",
+  "cancelled",
+]);
+
+export const vendorTables = pgTable(
+  "vendor_tables",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    vendorId: uuid("vendor_id")
+      .notNull()
+      .references(() => vendors.id, { onDelete: "cascade" }),
+    tableNumber: varchar("table_number", { length: 16 }).notNull(),
+    seatingCapacity: integer("seating_capacity").default(4).notNull(),
+    qrToken: varchar("qr_token", { length: 64 }).unique(),
+    isActive: boolean("is_active").default(true).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [
+    unique("uq_vendor_table_number").on(table.vendorId, table.tableNumber),
+    index("idx_vendor_tables_vendor").on(table.vendorId),
+  ]
+);
+
+export const tableSessions = pgTable(
+  "table_sessions",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    vendorId: uuid("vendor_id")
+      .notNull()
+      .references(() => vendors.id, { onDelete: "cascade" }),
+    tableId: uuid("table_id")
+      .notNull()
+      .references(() => vendorTables.id, { onDelete: "cascade" }),
+    waiterId: uuid("waiter_id").references(() => users.id, { onDelete: "set null" }),
+    status: tableSessionStatusEnum("status").default("open").notNull(),
+    guestCount: integer("guest_count").default(1),
+    notes: text("notes"),
+    openedAt: timestamp("opened_at", { withTimezone: true }).defaultNow().notNull(),
+    closedAt: timestamp("closed_at", { withTimezone: true }),
+    totalBilled: integer("total_billed").default(0).notNull(),
+    totalSettled: integer("total_settled").default(0).notNull(),
+  },
+  (table) => [
+    index("idx_table_sessions_active").on(table.tableId, table.status),
+  ]
+);
+
+export const productModifierGroups = pgTable(
+  "product_modifier_groups",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    vendorId: uuid("vendor_id")
+      .notNull()
+      .references(() => vendors.id, { onDelete: "cascade" }),
+    name: varchar("name", { length: 64 }).notNull(),
+    minSelections: integer("min_selections").default(0).notNull(),
+    maxSelections: integer("max_selections").default(1).notNull(),
+    isRequired: boolean("is_required").default(false).notNull(),
+    displayOrder: integer("display_order").default(0).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  }
+);
+
+export const productModifierOptions = pgTable(
+  "product_modifier_options",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    groupId: uuid("group_id")
+      .notNull()
+      .references(() => productModifierGroups.id, { onDelete: "cascade" }),
+    name: varchar("name", { length: 64 }).notNull(),
+    priceDelta: integer("price_delta").default(0).notNull(),
+    isAvailable: boolean("is_available").default(true).notNull(),
+    displayOrder: integer("display_order").default(0).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [
+    index("idx_modifier_opts_group").on(table.groupId),
+  ]
+);
+
+export const productToModifierGroups = pgTable(
+  "product_to_modifier_groups",
+  {
+    productId: varchar("product_id", { length: 255 }).notNull(),
+    modifierGroupId: uuid("modifier_group_id")
+      .notNull()
+      .references(() => productModifierGroups.id, { onDelete: "cascade" }),
+  },
+  (table) => [
+    primaryKey({ columns: [table.productId, table.modifierGroupId] }),
+  ]
+);
+
+
 // --- ORDERS ---
 export const orders = pgTable('orders', {
   id: uuid('id').defaultRandom().primaryKey(),
   orderNumber: varchar('order_number', { length: 32 }).notNull().unique(),
   customerId: uuid('customer_id')
-    .notNull()
     .references(() => users.id),
+  fulfillmentType: orderFulfillmentTypeEnum('fulfillment_type').default('delivery').notNull(),
+  cashierId: uuid('cashier_id').references(() => users.id),
+  posTerminalId: varchar('pos_terminal_id', { length: 64 }),
   vendorId: uuid('vendor_id')
     .notNull()
     .references(() => vendors.id),
@@ -183,10 +335,15 @@ export const orders = pgTable('orders', {
   convenienceFee: integer('convenience_fee').notNull(),
   totalAmount: integer('total_amount').notNull(),
   paymentMethod: varchar('payment_method', { length: 30 }).notNull(), // 'pesapal' | 'cod'
-  deliveryPin: varchar('delivery_pin', { length: 10 }),
-  codAmountDue: numeric('cod_amount_due', { precision: 12, scale: 2 }).default('0'),
-  codCashReceived: numeric('cod_cash_received', { precision: 12, scale: 2 }).default('0'),
+  // COD Escrow Fields
+  deliveryPin: varchar('delivery_pin', { length: 6 }),
+  codAmountDue: integer('cod_amount_due').default(0),
+  codCashReceived: integer('cod_cash_received').default(0),
   codVerifiedAt: timestamp('cod_verified_at', { withTimezone: true }),
+  tableId: uuid('table_id').references(() => vendorTables.id, { onDelete: "set null" }),
+  tableSessionId: uuid('table_session_id').references(() => tableSessions.id, { onDelete: "set null" }),
+  waiterId: uuid('waiter_id').references(() => users.id, { onDelete: "set null" }),
+  updatedAt: timestamp('updated_at', { withTimezone: true }),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
 });
 
@@ -201,6 +358,8 @@ export const orderItems = pgTable('order_items', {
   unitPrice: integer('unit_price').notNull(),
   quantity: integer('quantity').notNull(),
   totalPrice: integer('total_price').notNull(),
+  selectedModifiers: jsonb('selected_modifiers').$type<Array<{ groupName: string; optionName: string; priceDelta: number }>>().default([]),
+  kitchenNotes: varchar('kitchen_notes', { length: 255 }),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
 });
 
@@ -404,15 +563,120 @@ export const payments = pgTable('payments', {
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
 });
-export const riders = pgTable('riders', {
-  id: uuid('id').defaultRandom().primaryKey(),
-  name: varchar('name', { length: 255 }).notNull(),
-  phone: varchar('phone', { length: 50 }).notNull(),
-  vehiclePlate: varchar('vehicle_plate', { length: 50 }).notNull(),
-  isActive: boolean('is_active').default(true),
-  isAvailable: boolean('is_available').default(true),
-  currentLat: numeric('current_lat', { precision: 10, scale: 7 }),
-  currentLng: numeric('current_lng', { precision: 10, scale: 7 }),
-  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow(),
-  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow(),
+
+
+export const vendorTablesRelations = relations(vendorTables, ({ one, many }) => ({
+  vendor: one(vendors, {
+    fields: [vendorTables.vendorId],
+    references: [vendors.id],
+  }),
+  sessions: many(tableSessions),
+  orders: many(orders),
+}));
+
+export const tableSessionsRelations = relations(tableSessions, ({ one, many }) => ({
+  vendor: one(vendors, {
+    fields: [tableSessions.vendorId],
+    references: [vendors.id],
+  }),
+  table: one(vendorTables, {
+    fields: [tableSessions.tableId],
+    references: [vendorTables.id],
+  }),
+  waiter: one(users, {
+    fields: [tableSessions.waiterId],
+    references: [users.id],
+  }),
+  orders: many(orders),
+}));
+
+export const productModifierGroupsRelations = relations(
+  productModifierGroups,
+  ({ one, many }) => ({
+    vendor: one(vendors, {
+      fields: [productModifierGroups.vendorId],
+      references: [vendors.id],
+    }),
+    options: many(productModifierOptions),
+    productLinks: many(productToModifierGroups),
+  })
+);
+
+export const productModifierOptionsRelations = relations(
+  productModifierOptions,
+  ({ one }) => ({
+    group: one(productModifierGroups, {
+      fields: [productModifierOptions.groupId],
+      references: [productModifierGroups.id],
+    }),
+  })
+);
+
+export const productToModifierGroupsRelations = relations(
+  productToModifierGroups,
+  ({ one }) => ({
+    modifierGroup: one(productModifierGroups, {
+      fields: [productToModifierGroups.modifierGroupId],
+      references: [productModifierGroups.id],
+    }),
+  })
+);
+
+
+export const products = pgTable("products", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  vendorId: uuid("vendor_id").notNull().references(() => vendors.id, { onDelete: "cascade" }),
+  name: varchar("name", { length: 255 }).notNull(),
+  description: text("description"),
+  sku: varchar("sku", { length: 64 }),
+  barcode: varchar("barcode", { length: 64 }),
+  category: varchar("category", { length: 64 }).default("General").notNull(),
+  basePrice: numeric("base_price", { precision: 12, scale: 2 }).notNull().default("0"),
+  costPrice: numeric("cost_price", { precision: 12, scale: 2 }).default("0"),
+  stockQuantity: integer("stock_quantity").default(0).notNull(),
+  trackInventory: boolean("track_inventory").default(false).notNull(),
+  requiresKitchenPrep: boolean("requires_kitchen_prep").default(false).notNull(),
+  imageUrl: text("image_url"),
+  isAvailable: boolean("is_available").default(true).notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+});
+
+export const vendorStaff = pgTable("vendor_staff", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  vendorId: uuid("vendor_id").notNull().references(() => vendors.id, { onDelete: "cascade" }),
+  fullName: varchar("full_name", { length: 128 }).notNull(),
+  email: varchar("email", { length: 128 }),
+  phoneNumber: varchar("phone_number", { length: 32 }).notNull(),
+  role: vendorStaffRoleEnum("role").default("cashier").notNull(),
+  posPin: varchar("pos_pin", { length: 64 }),
+  passwordHash: varchar("password_hash", { length: 255 }),
+  nationalIdNumber: varchar("national_id_number", { length: 64 }),
+  emergencyContactPhone: varchar("emergency_contact_phone", { length: 32 }),
+  verificationStatus: staffVerificationStatusEnum("verification_status").default("unverified").notNull(),
+  isActive: boolean("is_active").default(true).notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+});
+
+export const posShifts = pgTable("pos_shifts", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  vendorId: uuid("vendor_id").notNull().references(() => vendors.id, { onDelete: "cascade" }),
+  cashierId: uuid("cashier_id").references(() => vendorStaff.id, { onDelete: "set null" }),
+  cashierName: varchar("cashier_name", { length: 128 }).notNull(),
+  status: posShiftStatusEnum("status").default("open").notNull(),
+  openedAt: timestamp("opened_at", { withTimezone: true }).defaultNow().notNull(),
+  closedAt: timestamp("closed_at", { withTimezone: true }),
+  openingFloat: numeric("opening_float", { precision: 12, scale: 2 }).default("0").notNull(),
+  cashSales: numeric("cash_sales", { precision: 12, scale: 2 }).default("0").notNull(),
+  momoSales: numeric("momo_sales", { precision: 12, scale: 2 }).default("0").notNull(),
+  cardSales: numeric("card_sales", { precision: 12, scale: 2 }).default("0").notNull(),
+  totalSales: numeric("total_sales", { precision: 12, scale: 2 }).default("0").notNull(),
+  paidOut: numeric("paid_out", { precision: 12, scale: 2 }).default("0").notNull(),
+  expectedCash: numeric("expected_cash", { precision: 12, scale: 2 }).default("0").notNull(),
+  actualCashCounted: numeric("actual_cash_counted", { precision: 12, scale: 2 }),
+  cashDifference: numeric("cash_difference", { precision: 12, scale: 2 }),
+  notes: text("notes"),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
 });

@@ -1,71 +1,171 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { NextResponse } from 'next/server';
+import type { NextRequest } from 'next/server';
 import { db } from '@/db';
 import { sql } from 'drizzle-orm';
+import { verifyPassword, generateOtp } from '@/utils/security';
+import { logPlatformAudit } from '@/utils/auditLogger';
 
-export async function POST(req: NextRequest) {
+export const dynamic = 'force-dynamic';
+
+export async function POST(request: NextRequest) {
   try {
-    const body = await req.json();
-    const phone = body?.phone;
+    const { phone, password, otp } = await request.json();
 
     if (!phone) {
       return NextResponse.json({ success: false, message: 'Phone number is required.' }, { status: 400 });
     }
 
-    const cleanDigits = String(phone).replace(/\D/g, '');
-    const plusFormatted = `+${cleanDigits}`;
-    const localFormatted = cleanDigits.startsWith('256') ? `0${cleanDigits.slice(3)}` : String(phone);
+    const cleanPhone = phone.trim();
 
-    // Resilient raw SQL execution avoiding Drizzle enum serialization bugs
-    const queryResult: any = await db.execute(sql`
+    const userResult: any = await db.execute(sql`
       SELECT 
         id::text AS id, 
         phone, 
         role::text AS role, 
-        is_active AS "isActive"
-      FROM users 
-      WHERE phone IN (${phone}, ${plusFormatted}, ${localFormatted}) 
+        is_active AS "isActive",
+        password_hash AS "passwordHash",
+        otp_code AS "otpCode",
+        otp_expires_at AS "otpExpiresAt",
+        COALESCE(mfa_enabled, false) AS "mfaEnabled"
+      FROM users
+      WHERE phone = ${cleanPhone}
       LIMIT 1
     `);
 
-    const rows = Array.isArray(queryResult) ? queryResult : (queryResult?.rows || []);
-    const user = rows[0];
+    const user = Array.isArray(userResult) ? userResult[0] : userResult?.rows?.[0];
 
     if (!user) {
-      return NextResponse.json({ success: false, message: 'Staff identity not registered in system.' }, { status: 401 });
+      return NextResponse.json({ success: false, message: 'Staff identity not registered in system.' }, { status: 404 });
     }
 
-    const userRole = String(user.role);
-    const allowedRoles = ['super_admin', 'admin', 'vendor_owner'];
-    if (!allowedRoles.includes(userRole)) {
-      return NextResponse.json(
-        { success: false, message: 'Access denied: Customer or rider identity cannot access staff operations.' },
-        { status: 403 }
-      );
+    if (!user.isActive) {
+      return NextResponse.json({ success: false, message: 'Account suspended by operations.' }, { status: 403 });
     }
 
-    const response = NextResponse.json({
-      success: true,
-      user: {
-        id: user.id,
-        phone: user.phone,
-        role: userRole,
-      },
-      redirectUrl: '/admin',
-    });
+    const allowedRoles = ['super_admin', 'admin', 'vendor_owner', 'rider'];
+    if (!allowedRoles.includes(user.role)) {
+      return NextResponse.json({ success: false, message: 'Access denied: Insufficient privileges.' }, { status: 403 });
+    }
 
-    response.cookies.set({
-      name: 'klaretail_staff_session',
-      value: JSON.stringify({ id: user.id, role: userRole, phone: user.phone }),
-      httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: 'lax',
-      path: '/',
-      maxAge: 60 * 60 * 24 * 7,
-    });
+    if (otp) {
+      if (!user.otpCode || !user.otpExpiresAt) {
+        return NextResponse.json({ success: false, message: 'No pending OTP verification request.' }, { status: 400 });
+      }
 
-    return response;
+      if (new Date() > new Date(user.otpExpiresAt)) {
+        return NextResponse.json({ success: false, message: 'Verification OTP has expired. Please request a new one.' }, { status: 400 });
+      }
+
+      if (String(user.otpCode).trim() !== String(otp).trim()) {
+        return NextResponse.json({ success: false, message: 'Invalid 6-digit OTP code.' }, { status: 401 });
+      }
+
+      await db.execute(sql`
+        UPDATE users 
+        SET otp_code = NULL, otp_expires_at = NULL, updated_at = NOW() 
+        WHERE id = ${user.id}::uuid
+      `);
+
+      return issueStaffSession(request, user, 'PASSWORD_PLUS_OTP');
+    }
+
+    if (!password) {
+      return NextResponse.json({ success: false, message: 'Password is required.' }, { status: 400 });
+    }
+
+    if (!user.passwordHash || !verifyPassword(password, user.passwordHash)) {
+      await logPlatformAudit({
+        request,
+        action: 'STAFF_LOGIN_FAILED',
+        targetEntity: 'users',
+        targetId: user.id,
+        actorId: user.id,
+        actorRole: user.role,
+        metadata: { phone: cleanPhone, reason: 'INVALID_PASSWORD' }
+      });
+      return NextResponse.json({ success: false, message: 'Invalid staff credentials.' }, { status: 401 });
+    }
+
+    if (user.mfaEnabled) {
+      const { code, expiresAt } = generateOtp(6);
+
+      await db.execute(sql`
+        UPDATE users 
+        SET otp_code = ${code}, 
+            otp_expires_at = ${expiresAt.toISOString()}, 
+            updated_at = NOW()
+        WHERE id = ${user.id}::uuid
+      `);
+
+      console.log(`[AUTH OTP DISPATCH] Phone: ${cleanPhone} | OTP: ${code} | Valid until: ${expiresAt.toISOString()}`);
+
+      await logPlatformAudit({
+        request,
+        action: 'STAFF_OTP_ISSUED',
+        targetEntity: 'users',
+        targetId: user.id,
+        actorId: user.id,
+        actorRole: user.role,
+        metadata: { phone: cleanPhone }
+      });
+
+      return NextResponse.json({
+        success: true,
+        mfaRequired: true,
+        message: 'Password verified. Enter the 6-digit verification code sent to your phone.',
+        phone: cleanPhone
+      });
+    }
+
+    return issueStaffSession(request, user, 'PASSWORD_ONLY');
+
   } catch (error: any) {
-    console.error('Staff login error:', error);
-    return NextResponse.json({ success: false, message: error.message }, { status: 500 });
+    return NextResponse.json({ success: false, message: error.message || 'Login failed.' }, { status: 500 });
   }
+}
+
+async function issueStaffSession(request: NextRequest, user: any, authMethod: string) {
+  const sessionPayload = {
+    id: user.id,
+    phone: user.phone,
+    role: user.role,
+    authMethod,
+    issuedAt: new Date().toISOString(),
+  };
+
+  await logPlatformAudit({
+    request,
+    action: 'STAFF_USER_LOGIN',
+    targetEntity: 'users',
+    targetId: user.id,
+    actorId: user.id,
+    actorRole: user.role,
+    metadata: { phone: user.phone, role: user.role, authMethod }
+  });
+
+  const redirectUrl = user.role === 'super_admin' 
+    ? '/admin/super' 
+    : user.role === 'rider' 
+    ? '/dispatch' 
+    : '/admin';
+
+  const response = NextResponse.json({
+    success: true,
+    message: `Authenticated successfully as ${user.role}.`,
+    user: sessionPayload,
+    redirectUrl
+  });
+
+  // Next.js handles cookie encoding natively; pass JSON string without double encodeURIComponent
+  response.cookies.set({
+    name: 'staff_session',
+    value: JSON.stringify(sessionPayload),
+    httpOnly: true,
+    secure: process.env.NODE_ENV === 'production',
+    sameSite: 'lax',
+    path: '/',
+    maxAge: 60 * 60 * 24 * 7,
+  });
+
+  return response;
 }

@@ -12,3 +12,10 @@ yarn-error.log*
 .pnpm-debug.log*
 .DS_Store
 *.pem
+
+# Local runtime & test credential stores
+.pos_shifts.json
+.vendor_credentials.json
+.vendor_staff.json
+tsconfig.tsbuildinfo
+/tmp/*_cookie.txt
