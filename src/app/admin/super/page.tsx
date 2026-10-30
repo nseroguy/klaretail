@@ -89,6 +89,7 @@ interface RiderRecord {
   completedDeliveries: number;
   activeDeliveries: number;
   utilizationPct: number;
+  walletBalance?: number | string;
 }
 
 interface UserRecord {
@@ -148,6 +149,11 @@ export default function SuperAdminExecutiveConsole() {
   const [createRiderLoading, setCreateRiderLoading] = useState(false);
   const [createRiderError, setCreateRiderError] = useState<string | null>(null);
   const [actionInProgressId, setActionInProgressId] = useState<string | null>(null);
+  const [adjustModalRider, setAdjustModalRider] = useState<{ id: string; name: string; currentBalance: number } | null>(null);
+  const [adjustAmount, setAdjustAmount] = useState<string>('');
+  const [adjustType, setAdjustType] = useState<'credit' | 'debit'>('credit');
+  const [adjustReason, setAdjustReason] = useState<string>('Cash desk remittance verification');
+  const [isAdjusting, setIsAdjusting] = useState<boolean>(false);
 
   // URL query sync
   useEffect(() => {
@@ -292,6 +298,69 @@ export default function SuperAdminExecutiveConsole() {
       alert(err.message);
     } finally {
       setActionInProgressId(null);
+    }
+  };
+
+  const handleForceSettle = async (orderId: string, orderNumber: string) => {
+    if (!confirm(`Are you sure you want to administratively force-settle Order #${orderNumber}? This will execute atomic 5-way escrow settlement immediately.`)) return;
+    setActionInProgressId(orderId);
+    try {
+      const res = await fetch('/api/admin/operations', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ action: 'force_settle_order', orderId, reason: 'Super Admin PIN Bypass Override' }),
+      });
+      const json = await res.json();
+      if (json.success) {
+        alert(`Order #${orderNumber} successfully force-settled!`);
+        fetchAll();
+      } else {
+        alert(json.message || 'Settlement override failed');
+      }
+    } catch (err: any) {
+      alert(err.message || 'Network error');
+    } finally {
+      setActionInProgressId(null);
+    }
+  };
+
+  const handleExecuteWalletAdjustment = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!adjustModalRider) return;
+    const rawVal = parseFloat(adjustAmount);
+    if (isNaN(rawVal) || rawVal <= 0) {
+      alert('Please enter a valid positive UGX amount.');
+      return;
+    }
+    const finalAmount = adjustType === 'credit' ? rawVal : -rawVal;
+    setIsAdjusting(true);
+    try {
+      const res = await fetch('/api/admin/super/riders', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
+          action: 'adjust_wallet',
+          riderId: adjustModalRider.id,
+          amount: finalAmount,
+          reason: adjustReason,
+        }),
+      });
+      const json = await res.json();
+      if (json.success) {
+        alert(json.message);
+        setAdjustModalRider(null);
+        setAdjustAmount('');
+        fetchRiders();
+        fetchAuditLogs();
+      } else {
+        alert(json.message || 'Adjustment failed');
+      }
+    } catch (err: any) {
+      alert(err.message || 'Network error');
+    } finally {
+      setIsAdjusting(false);
     }
   };
 
@@ -970,6 +1039,17 @@ export default function SuperAdminExecutiveConsole() {
                                   ● {s.status.toUpperCase()}
                                 </span>
                               </td>
+                              <td className="text-right py-2">
+                                {s.status !== 'delivered' && (
+                                  <button
+                                    onClick={() => handleForceSettle(s.id, s.order_number)}
+                                    disabled={actionInProgressId === s.id}
+                                    className="px-2 py-1 rounded bg-amber-600/20 hover:bg-amber-600 text-amber-300 hover:text-white border border-amber-600/40 text-[10px] font-bold transition disabled:opacity-50"
+                                  >
+                                    Force Settle
+                                  </button>
+                                )}
+                              </td>
                             </tr>
                           ))
                         )}
@@ -1106,6 +1186,12 @@ export default function SuperAdminExecutiveConsole() {
                                 className="px-2.5 py-1.5 rounded-lg bg-emerald-600/20 hover:bg-emerald-600 text-emerald-300 hover:text-white border border-emerald-600/40 text-[11px] font-semibold transition disabled:opacity-50"
                               >
                                 Verify Remittance
+                              </button>
+                              <button
+                                onClick={() => setAdjustModalRider({ id: r.id, name: r.name, currentBalance: Number(r.walletBalance || 0) })}
+                                className="px-2.5 py-1.5 rounded-lg bg-indigo-600/20 hover:bg-indigo-600 text-indigo-300 hover:text-white border border-indigo-600/40 text-[11px] font-semibold transition"
+                              >
+                                Adjust Float
                               </button>
                               <button
                                 onClick={() => handleToggleLock(r.id)}
@@ -1566,6 +1652,112 @@ export default function SuperAdminExecutiveConsole() {
                   className="px-5 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-bold transition flex items-center gap-2 cursor-pointer"
                 >
                   {createVendorLoading ? 'Registering Store...' : 'Confirm & Register'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Wallet Adjustment Modal */}
+      {adjustModalRider && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
+          <div className="w-full max-w-md bg-[#0f131a] border border-slate-800 rounded-2xl p-6 shadow-2xl space-y-4">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+              <div>
+                <h2 className="text-base font-bold text-white font-mono">Manual Wallet Adjustment</h2>
+                <div className="text-xs text-slate-400 font-sans mt-0.5">{adjustModalRider.name}</div>
+              </div>
+              <button
+                onClick={() => setAdjustModalRider(null)}
+                className="text-slate-400 hover:text-white text-lg font-bold"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="p-3 bg-slate-900 border border-slate-800 rounded-xl text-xs flex justify-between items-center font-mono">
+              <span className="text-slate-400">Current Ledger Balance:</span>
+              <span className={adjustModalRider.currentBalance < 0 ? 'text-rose-400 font-bold' : 'text-emerald-400 font-bold'}>
+                {formatUGX(adjustModalRider.currentBalance)}
+              </span>
+            </div>
+
+            <form onSubmit={handleExecuteWalletAdjustment} className="space-y-4 font-sans text-xs">
+              <div>
+                <label className="block font-semibold text-slate-300 uppercase tracking-wider text-[10px] mb-1">
+                  Adjustment Type
+                </label>
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setAdjustType('credit')}
+                    className={`py-2 text-center rounded-xl font-bold font-mono text-xs border transition ${
+                      adjustType === 'credit'
+                        ? 'bg-emerald-600/30 text-emerald-300 border-emerald-500'
+                        : 'bg-slate-900 text-slate-400 border-slate-800'
+                    }`}
+                  >
+                    + Credit (Reduce Debt)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setAdjustType('debit')}
+                    className={`py-2 text-center rounded-xl font-bold font-mono text-xs border transition ${
+                      adjustType === 'debit'
+                        ? 'bg-rose-600/30 text-rose-300 border-rose-500'
+                        : 'bg-slate-900 text-slate-400 border-slate-800'
+                    }`}
+                  >
+                    - Debit (Increase Debt)
+                  </button>
+                </div>
+              </div>
+
+              <div>
+                <label className="block font-semibold text-slate-300 uppercase tracking-wider text-[10px]">
+                  Amount (UGX)
+                </label>
+                <input
+                  type="number"
+                  required
+                  min="500"
+                  step="500"
+                  value={adjustAmount}
+                  onChange={(e) => setAdjustAmount(e.target.value)}
+                  placeholder="e.g. 20000"
+                  className="mt-1 w-full px-3 py-2 bg-slate-900 border border-slate-800 rounded-xl text-white font-mono focus:outline-none focus:border-indigo-500"
+                />
+              </div>
+
+              <div>
+                <label className="block font-semibold text-slate-300 uppercase tracking-wider text-[10px]">
+                  Compulsory Audit Reason
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={adjustReason}
+                  onChange={(e) => setAdjustReason(e.target.value)}
+                  placeholder="e.g. In-office cash deposit / Dispute credit"
+                  className="mt-1 w-full px-3 py-2 bg-slate-900 border border-slate-800 rounded-xl text-white font-sans focus:outline-none focus:border-indigo-500"
+                />
+              </div>
+
+              <div className="flex justify-end gap-3 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setAdjustModalRider(null)}
+                  className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl text-xs font-semibold"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={isAdjusting}
+                  className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-xs font-bold transition disabled:opacity-50"
+                >
+                  {isAdjusting ? 'Posting to Ledger...' : 'Post Ledger Entry'}
                 </button>
               </div>
             </form>

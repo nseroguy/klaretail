@@ -58,6 +58,58 @@ export async function POST(req: NextRequest) {
     const body = await req.json();
     const { action } = body;
 
+    // --- SUPER ADMIN EMERGENCY ACTIONS ---
+    if (action === 'force_settle_order') {
+      const { orderId, reason = 'Super Admin Force Settlement' } = body;
+      if (!orderId) {
+        return NextResponse.json({ success: false, message: 'orderId is required' }, { status: 400 });
+      }
+
+      // Fetch order details
+      const [orderResult]: any = await db.execute(sql`SELECT * FROM orders WHERE id::text = ${orderId} LIMIT 1`);
+      const order = Array.isArray(orderResult) ? orderResult[0] : (orderResult?.rows?.[0] || orderResult);
+
+      if (!order) {
+        return NextResponse.json({ success: false, message: 'Order not found' }, { status: 404 });
+      }
+
+      // Call internal verify-pin endpoint to run complete atomic settlement
+      const verifyRes = await fetch("http://localhost:3000/api/orders/verify-pin", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          orderId: order.id,
+          pin: order.delivery_pin || order.deliveryPin,
+          cashCollected: (order.payment_method || order.paymentMethod) === 'cod' ? Number(order.cod_amount_due || order.total_amount || 0) : 0,
+        }),
+      });
+
+      const verifyData = await verifyRes.json();
+      return NextResponse.json({
+        success: verifyRes.ok,
+        message: verifyData.message || 'Order settled successfully via administrative override.',
+        data: verifyData,
+      });
+    }
+
+    if (action === 'reassign_rider') {
+      const { orderId, newRiderId } = body;
+      if (!orderId || !newRiderId) {
+        return NextResponse.json({ success: false, message: 'orderId and newRiderId are required' }, { status: 400 });
+      }
+
+      await db.execute(sql`
+        UPDATE orders 
+        SET rider_id = ${newRiderId}::uuid, updated_at = NOW() 
+        WHERE id::text = ${orderId}
+      `);
+
+      return NextResponse.json({
+        success: true,
+        message: 'Order courier successfully reassigned.',
+      });
+    }
+
     // 1. UPDATE VENDOR PROFILE
     if (action === "update_vendor") {
       const { vendorId, name, slug, sector, subCategory, commissionBps, isAcceptingOrders } = body;

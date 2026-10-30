@@ -99,6 +99,8 @@ export const ledgerEntryTypeEnum = pgEnum('ledger_entry_type', [
   'fuel_allowance_payout',
   'refusal_fee_debit',
   'rounding_surplus',
+  'staff_manual_adjustment',
+  'cod_demurrage_debit',
 ]);
 
 // ==========================================
