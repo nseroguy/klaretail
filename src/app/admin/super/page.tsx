@@ -59,6 +59,9 @@ interface PlatformMetrics {
 
 interface VendorRecord {
   status?: string;
+  isApproved?: boolean;
+  sector?: string;
+  serviceType?: string;
   id: string;
   name: string;
   slug: string;
@@ -121,7 +124,7 @@ export default function SuperAdminExecutiveConsole() {
   const [riders, setRiders] = useState<RiderRecord[]>([]);
   const [users, setUsers] = useState<UserRecord[]>([]);
   const [auditLogs, setAuditLogs] = useState<AuditRecord[]>([]);
-  const [activeTab, setActiveTab] = useState<'vendors' | 'cockpit' | 'fleet' | 'rbac' | 'audit'>('vendors');
+  const [activeTab, setActiveTab] = useState<'approvals' | 'vendors' | 'cockpit' | 'fleet' | 'rbac' | 'audit'>('vendors');
   const [loading, setLoading] = useState(false);
   const [authBanner, setAuthBanner] = useState<string | null>(null);
 
@@ -160,13 +163,13 @@ export default function SuperAdminExecutiveConsole() {
     if (typeof window !== 'undefined') {
       const params = new URLSearchParams(window.location.search);
       const tab = params.get('tab');
-      if (tab && ['cockpit', 'vendors', 'fleet', 'rbac', 'audit'].includes(tab)) {
+      if (tab && ['approvals', 'cockpit', 'vendors', 'fleet', 'rbac', 'audit'].includes(tab)) {
         setActiveTab(tab as any);
       }
     }
   }, []);
 
-  const switchTab = (tab: 'cockpit' | 'vendors' | 'fleet' | 'rbac' | 'audit') => {
+  const switchTab = (tab: 'approvals' | 'cockpit' | 'vendors' | 'fleet' | 'rbac' | 'audit') => {
     setActiveTab(tab);
     if (typeof window !== 'undefined') {
       const url = new URL(window.location.href);
@@ -596,13 +599,16 @@ export default function SuperAdminExecutiveConsole() {
                 Governance Domains
               </div>
               <div className="space-y-1.5">
-                {[
-                  { id: 'vendors', label: 'Merchant Governance', icon: '🏬', badge: vendors.length },
-                  { id: 'cockpit', label: 'Platform Cockpit', icon: '🏛️' },
-                  { id: 'fleet', label: 'Fleet & Cash Sentinel', icon: '⚡', badge: riders.length },
-                  { id: 'rbac', label: 'Staff & RBAC Matrix', icon: '🛡️', badge: users.length },
-                  { id: 'audit', label: 'Audit Trail Ledger', icon: '📜', badge: auditLogs.length },
-                ].map((item) => (
+                {(() => {
+                  const pendingCount = vendors.filter(v => !v.isApproved || v.status === 'pending_review' || v.status === 'pending').length;
+                  return [
+                    { id: 'approvals', label: 'Pending Approvals', icon: '📝', badge: pendingCount, alert: pendingCount > 0 },
+                    { id: 'vendors', label: 'Merchant Directory', icon: '🏬', badge: vendors.length },
+                    { id: 'cockpit', label: 'Platform Cockpit', icon: '🏛️' },
+                    { id: 'fleet', label: 'Fleet & Cash Sentinel', icon: '⚡', badge: riders.length },
+                    { id: 'rbac', label: 'Staff & RBAC Matrix', icon: '🛡️', badge: users.length },
+                    { id: 'audit', label: 'Audit Trail Ledger', icon: '📜', badge: auditLogs.length },
+                  ].map((item: any) => (
                   <button
                     key={item.id}
                     onClick={() => switchTab(item.id as any)}
@@ -626,7 +632,8 @@ export default function SuperAdminExecutiveConsole() {
                       </span>
                     )}
                   </button>
-                ))}
+                ));
+                })()}
               </div>
             </div>
 
@@ -650,6 +657,99 @@ export default function SuperAdminExecutiveConsole() {
 
         {/* Dynamic Canvas */}
         <main className="flex-1 p-8 space-y-8 overflow-y-auto max-w-7xl">
+                    {/* TAB: PENDING APPROVALS */}
+          {activeTab === 'approvals' && (
+            <div className="space-y-6">
+              <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-slate-800/80 pb-6">
+                <div>
+                  <h1 className="text-2xl font-bold font-mono text-white flex items-center gap-2">
+                    <span>📝</span> Merchant Onboarding & Approvals
+                  </h1>
+                  <p className="text-sm text-slate-400 mt-1">
+                    Vetting queue for merchants registered via retail.techaus.online/vendor/login
+                  </p>
+                </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={fetchVendors}
+                    className="px-3 py-1.5 text-xs font-mono bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-lg transition"
+                  >
+                    ↻ Refresh Queue
+                  </button>
+                </div>
+              </div>
+
+              {(() => {
+                const pending = vendors.filter(v => !v.isApproved || v.status === 'pending_review' || v.status === 'pending');
+                if (pending.length === 0) {
+                  return (
+                    <div className="bg-[#0b0e14] border border-slate-800/80 rounded-2xl p-12 text-center">
+                      <div className="text-4xl mb-3">✅</div>
+                      <div className="text-lg font-bold text-white font-mono">No Pending Registrations</div>
+                      <p className="text-sm text-slate-400 mt-1 max-w-md mx-auto">
+                        All merchants registered through the vendor portal have been vetted and verified.
+                      </p>
+                    </div>
+                  );
+                }
+
+                return (
+                  <div className="grid grid-cols-1 gap-4">
+                    {pending.map((v) => (
+                      <div key={v.id} className="bg-[#0b0e14] border border-amber-500/30 rounded-2xl p-6 shadow-xl flex flex-col md:flex-row md:items-center justify-between gap-6">
+                        <div className="space-y-2">
+                          <div className="flex items-center gap-3">
+                            <h3 className="text-lg font-bold text-white font-mono">{v.name}</h3>
+                            <span className="px-2 py-0.5 text-[10px] font-mono rounded bg-amber-500/10 text-amber-400 border border-amber-500/30 font-bold uppercase">
+                              {v.status || 'Pending Review'}
+                            </span>
+                          </div>
+
+                          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-xs font-mono pt-2">
+                            <div>
+                              <span className="text-slate-500 block text-[10px]">STORE SLUG</span>
+                              <span className="text-slate-300">/{v.slug}</span>
+                            </div>
+                            <div>
+                              <span className="text-slate-500 block text-[10px]">OWNER PHONE</span>
+                              <span className="text-emerald-400 font-bold">{v.ownerPhone}</span>
+                            </div>
+                            <div>
+                              <span className="text-slate-500 block text-[10px]">SECTOR / SERVICE</span>
+                              <span className="text-slate-300">{v.sector || 'food_beverage'} ({v.serviceType || 'quick_service'})</span>
+                            </div>
+                            <div>
+                              <span className="text-slate-500 block text-[10px]">REGISTERED ON</span>
+                              <span className="text-slate-400">{new Date(v.createdAt).toLocaleDateString()}</span>
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="flex items-center gap-3 self-end md:self-center shrink-0">
+                          <button
+                            onClick={() => handleVendorApproval(v.id, 'reject')}
+                            className="px-4 py-2 text-xs font-mono text-rose-400 hover:text-rose-300 bg-rose-950/20 hover:bg-rose-950/40 border border-rose-800/40 rounded-xl transition"
+                          >
+                            Reject Application
+                          </button>
+                          <button
+                            onClick={async () => {
+                              await handleVendorApproval(v.id, 'approve');
+                              fetchVendors();
+                            }}
+                            className="px-5 py-2 text-xs font-mono font-bold text-black bg-emerald-400 hover:bg-emerald-300 rounded-xl shadow-lg transition"
+                          >
+                            ✓ Approve &amp; Activate Store
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                );
+              })()}
+            </div>
+          )}
+
           {/* TAB: VENDORS */}
           {activeTab === 'vendors' && (
             <div className="space-y-6">
