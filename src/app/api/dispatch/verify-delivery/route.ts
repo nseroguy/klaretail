@@ -35,6 +35,7 @@ export async function POST(request: NextRequest) {
         id::text AS id,
         order_number AS "orderNumber",
         total_amount AS "totalAmount",
+        cod_amount_due::numeric AS "codAmountDue",
         delivery_pin AS "deliveryPin",
         payment_method AS "paymentMethod",
         status::text AS status,
@@ -62,11 +63,15 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // 3. Mark delivered and record received cash
+        // 3. Mark delivered and record actual remaining cash collected
+    const isCod = order.paymentMethod === 'cod' || order.paymentMethod === 'CASH_ON_DELIVERY';
+    const cashCollected = isCod ? Number(order.codAmountDue ?? order.totalAmount) : 0;
+
     await db.execute(sql`
       UPDATE orders 
-      SET status = 'delivered',
-          cod_cash_received = total_amount,
+      SET status = 'delivered'::order_status,
+          cod_cash_received = ${cashCollected},
+          cod_verified_at = NOW(),
           updated_at = NOW()
       WHERE id = ${orderId}::uuid
     `);

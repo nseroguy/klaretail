@@ -86,7 +86,8 @@ export async function POST(request: NextRequest) {
       }, { status: 422 });
     }
 
-    const codReceived = order.paymentMethod === 'CASH_ON_DELIVERY' 
+    const isCod = order.paymentMethod === 'cod' || order.paymentMethod === 'CASH_ON_DELIVERY';
+    const codReceived = isCod
       ? Number(cashCollected || order.codAmountDue || order.totalAmount)
       : 0.00;
 
