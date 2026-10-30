@@ -61,10 +61,33 @@ export async function POST(req: NextRequest) {
         WHERE merchant_ref = ${merchantReference};
       `;
 
-      // 2. Update orders table: orders does NOT have updated_at
+      // 2. Fetch payment and order records to calculate remaining cash balance
+      const pRows = await sql`
+        SELECT amount FROM payments WHERE merchant_ref = ${merchantReference} LIMIT 1;
+      `;
+      const paidAmount = Number(pRows?.[0]?.amount || 0);
+
+      const oRows = await sql`
+        SELECT id, total_amount, payment_method FROM orders WHERE order_number = ${merchantReference} LIMIT 1;
+      `;
+      const targetOrder = oRows?.[0];
+
+      let nextStatus = 'paid';
+      let remainingBalance = 0;
+
+      if (targetOrder) {
+        const isCod = targetOrder.payment_method === 'cod' || targetOrder.payment_method === 'CASH_ON_DELIVERY';
+        const total = Number(targetOrder.total_amount || 0);
+        remainingBalance = Math.max(0, total - paidAmount);
+        nextStatus = isCod && remainingBalance > 0 ? 'accepted' : 'paid';
+      }
+
+      // 3. Update orders table with remaining cash balance and reconciled status
       const updatedOrders = await sql`
         UPDATE orders 
-        SET status = 'paid'::order_status 
+        SET 
+          status = ${nextStatus}::order_status,
+          cod_amount_due = ${remainingBalance}
         WHERE order_number = ${merchantReference}
         RETURNING id, order_number;
       `;

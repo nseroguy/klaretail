@@ -29,10 +29,10 @@ export async function POST(req: NextRequest) {
     }
 
     // Determine amount payable now (full amount for pesapal, 50% deposit for COD)
-    const amountToCharge =
-      order.paymentMethod === 'cod'
-        ? Math.round(0.5 * order.productSubtotal)
-        : order.totalAmount;
+    const isCod = order.paymentMethod === 'cod' || order.paymentMethod === 'CASH_ON_DELIVERY';
+    const amountToCharge = isCod
+      ? Math.round(0.5 * Number(order.productSubtotal || order.totalAmount)) + Number(order.deliveryFee || 0)
+      : Number(order.totalAmount);
 
     // 2. Submit to Pesapal v3
     const pesapalResponse = await pesapal.submitOrder({
