@@ -30,9 +30,10 @@ export function middleware(request: NextRequest) {
   const isApi = pathname.startsWith('/api/');
 
   if (isSuperAdminRoute || isAdminRoute || isVendorRoute || isVendorApi || isDispatchRoute || isDispatchApi) {
-    const rawCookie = request.cookies.get('session_token')?.value || 
-                      request.cookies.get('staff_session')?.value ||
-                      request.cookies.get('klaretail_session')?.value;
+    const rawCookie = request.cookies.get("super_admin_session")?.value ||
+                      request.cookies.get("staff_session")?.value ||
+                      request.cookies.get("session_token")?.value ||
+                      request.cookies.get("klaretail_session")?.value;
 
     if (!rawCookie) {
       if (isApi) {

@@ -31,9 +31,22 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
   // Hydrate from localStorage once on client mount
   useEffect(() => {
     try {
-      const stored = localStorage.getItem('klaretail_cart');
+      const stored = localStorage.getItem("klaretail_cart");
       if (stored) {
-        setItems(JSON.parse(stored));
+        try {
+          const parsed = JSON.parse(stored);
+          if (Array.isArray(parsed)) {
+            setItems(parsed);
+          } else if (parsed && Array.isArray(parsed.items)) {
+            setItems(parsed.items);
+          } else if (parsed && typeof parsed === "object" && parsed.items) {
+            setItems(Object.values(parsed.items));
+          } else {
+            setItems([]);
+          }
+        } catch {
+          setItems([]);
+        }
       }
     } catch (e) {
       console.error('Failed to parse cart storage', e);
@@ -89,8 +102,9 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
     } catch (e) {}
   };
 
-  const subtotal = items.reduce((sum, item) => sum + item.price * item.quantity, 0);
-  const itemCount = items.reduce((sum, item) => sum + item.quantity, 0);
+  const safeItems = Array.isArray(items) ? items : [];
+  const subtotal = safeItems.reduce((sum, item) => sum + (Number(item?.price) || 0) * (Number(item?.quantity) || 1), 0);
+  const itemCount = safeItems.reduce((sum, item) => sum + (Number(item?.quantity) || 1), 0);
 
   return (
     <CartContext.Provider

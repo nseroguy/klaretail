@@ -3,8 +3,7 @@
 import React, { useState, useEffect } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import {
-  LayoutDashboard,
+import { LayoutDashboard,
   ShoppingCart,
   UtensilsCrossed,
   Package,
@@ -22,8 +21,7 @@ import {
   ShieldCheck,
   TrendingUp,
   Receipt,
-  Users
-} from "lucide-react";
+  Users, Wallet } from "lucide-react";
 
 interface VendorConfig {
   vendorName: string;

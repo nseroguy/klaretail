@@ -157,15 +157,20 @@ async function issueStaffSession(request: NextRequest, user: any, authMethod: st
   });
 
   // Next.js handles cookie encoding natively; pass JSON string without double encodeURIComponent
-  response.cookies.set({
-    name: 'staff_session',
-    value: JSON.stringify(sessionPayload),
-    httpOnly: true,
-    secure: process.env.NODE_ENV === 'production',
-    sameSite: 'lax',
-    path: '/',
+    const cookieOptions = {
+    httpOnly: false,
+    secure: process.env.NODE_ENV === "production",
+    sameSite: "lax" as const,
+    path: "/",
     maxAge: 60 * 60 * 24 * 7,
-  });
+  };
+
+  const strPayload = JSON.stringify(sessionPayload);
+  response.cookies.set({ name: "staff_session", value: strPayload, ...cookieOptions });
+  response.cookies.set({ name: "session_token", value: strPayload, ...cookieOptions });
+  if (user.role === "super_admin") {
+    response.cookies.set({ name: "super_admin_session", value: strPayload, ...cookieOptions });
+  }
 
   return response;
 }

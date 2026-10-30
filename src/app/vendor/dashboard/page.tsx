@@ -10,6 +10,7 @@ import {
   QrCode,
   FileSpreadsheet,
   Settings,
+  Wallet,
   TrendingUp,
   Clock,
   CheckCircle2,
@@ -24,14 +25,51 @@ import {
 
 export default function VendorDashboardPage() {
   const [stats, setStats] = useState({
-    todayRevenue: 485000,
-    ordersCount: 14,
-    openTables: 3,
-    activeKitchenTickets: 2,
+    todayRevenue: 0,
+    ordersCount: 0,
+    openTables: 0,
+    activeKitchenTickets: 0,
     serviceType: "dine_in_hybrid",
-    vendorName: "Bourbon Pizza Wandegeya",
-    slug: "bourbon-pizza-wandegeya",
+    vendorName: "Loading Store...",
+    slug: "",
   });
+
+  useEffect(() => {
+    try {
+      const getCookie = (name: string) => {
+        const value = `; ${document.cookie}`;
+        const parts = value.split(`; ${name}=`);
+        if (parts.length === 2) return parts.pop()?.split(";").shift() || null;
+        return null;
+      };
+
+      const raw = getCookie("session_token") || getCookie("staff_session");
+      if (raw) {
+        let dec = raw;
+        while (dec.includes("%")) dec = decodeURIComponent(dec);
+        const session = JSON.parse(dec);
+
+        if (session.vendorName || session.name) {
+          setStats((prev) => ({
+            ...prev,
+            vendorName: session.vendorName || session.name,
+            slug: session.vendorSlug || session.slug || "",
+          }));
+        }
+      }
+
+      fetch("/api/vendor/stats")
+        .then((res) => res.json())
+        .then((data) => {
+          if (data && data.success && data.stats) {
+            setStats((prev) => ({ ...prev, ...data.stats }));
+          }
+        })
+        .catch((err) => console.error("Error fetching vendor stats:", err));
+    } catch (e) {
+      console.error("Failed to parse vendor session:", e);
+    }
+  }, []);
 
   const [isLoading, setIsLoading] = useState(false);
 
@@ -56,6 +94,14 @@ export default function VendorDashboardPage() {
   };
 
   const tasks = [
+    {
+      title: "Store Wallet & Treasury",
+      description: "Manage float deposits via Pesapal, Mobile Money payouts & audit statement",
+      href: "/vendor/wallet",
+      icon: Wallet,
+      badge: "Treasury",
+      color: "text-emerald-400 bg-emerald-500/10 border-emerald-500/20"
+    },
     {
       title: "Point of Sale Register",
       desc: "Ring up walk-in customers, scan barcodes, and settle cash or MoMo bills.",

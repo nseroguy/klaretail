@@ -58,6 +58,7 @@ interface PlatformMetrics {
 }
 
 interface VendorRecord {
+  status?: string;
   id: string;
   name: string;
   slug: string;
@@ -427,6 +428,26 @@ export default function SuperAdminExecutiveConsole() {
     }
   };
 
+  const handleVendorApproval = async (vendorId: string, action: "approve" | "reject" | "suspend") => {
+    try {
+      const res = await fetch(`/api/admin/vendors/${vendorId}/approval`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action }),
+      });
+      const json = await res.json();
+      if (!res.ok || !json.success) {
+        alert(json.error || "Action failed");
+        return;
+      }
+      if (typeof fetchVendors === "function") {
+        fetchVendors();
+      }
+    } catch (err: any) {
+      alert(err.message || "Network error");
+    }
+  };
+
   const handleToggleOrders = async (vendorId: string) => {
     const res = await fetch('/api/admin/super/vendors', {
       method: 'PATCH',
@@ -601,6 +622,7 @@ export default function SuperAdminExecutiveConsole() {
                         <th>Verification</th>
                         <th>Payout Status</th>
                         <th className="text-right">Settled Volume</th>
+                        <th className="text-right pr-4">Actions</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-800/50">
@@ -697,12 +719,33 @@ export default function SuperAdminExecutiveConsole() {
                             {formatUGX(v.grossSales)}
                             <div className="text-[10px] text-slate-500">{v.totalOrders} total orders</div>
                           </td>
-                        </tr>
+                                                  <td className="text-right py-3.5 pr-4">
+                            <div className="flex items-center justify-end gap-1.5">
+                              {v.status === "pending_approval" || !v.isAcceptingOrders ? (
+                                <button
+                                  onClick={() => handleVendorApproval(v.id, "approve")}
+                                  className="px-2.5 py-1 text-xs font-bold rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white shadow-sm transition cursor-pointer"
+                                  title="Approve Business"
+                                >
+                                  Approve
+                                </button>
+                              ) : (
+                                <button
+                                  onClick={() => handleVendorApproval(v.id, "suspend")}
+                                  className="px-2.5 py-1 text-xs font-medium rounded-lg bg-slate-800 hover:bg-rose-950/80 text-slate-300 hover:text-rose-300 border border-slate-700 hover:border-rose-800 transition cursor-pointer"
+                                  title="Suspend Business"
+                                >
+                                  Suspend
+                                </button>
+                              )}
+                            </div>
+                          </td>
+                      </tr>
                       ))}
 
                       {vendors.length === 0 && (
                         <tr>
-                          <td colSpan={7} className="text-center py-10 text-slate-500 font-mono">
+                          <td colSpan={8} className="text-center py-10 text-slate-500 font-mono">
                             No merchants found. Click "+ Onboard New Vendor" to register a store.
                           </td>
                         </tr>
@@ -889,7 +932,7 @@ export default function SuperAdminExecutiveConsole() {
                       <tbody className="divide-y divide-slate-800/40">
                         {(!data?.recentSettlements || data.recentSettlements.length === 0) ? (
                           <tr>
-                            <td colSpan={7} className="py-6 text-center text-slate-500">No settlement records available.</td>
+                            <td colSpan={8} className="py-6 text-center text-slate-500">No settlement records available.</td>
                           </tr>
                         ) : (
                           data.recentSettlements.map((s) => (

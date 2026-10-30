@@ -1,5 +1,6 @@
 'use client';
 
+import Link from 'next/link';
 import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { 
@@ -15,7 +16,8 @@ import {
   Utensils, 
   PackageCheck, 
   Flame,
-  Tag
+  Tag,
+  Wallet
 } from 'lucide-react';
 
 interface OrderItem {
@@ -205,7 +207,14 @@ export default function VendorOrdersPage() {
           </div>
 
           <div className="flex items-center gap-3">
-            <button
+                      <Link
+            href="/vendor/wallet"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 hover:bg-emerald-500/20 text-xs font-semibold transition"
+          >
+            <Wallet className="w-3.5 h-3.5 text-emerald-400" />
+            <span>Store Wallet</span>
+          </Link>
+<button
               onClick={fetchVendorData}
               disabled={refreshing}
               className="flex items-center gap-1.5 rounded-xl border border-[#232D28] bg-[#161D19] px-3 py-2 text-xs font-semibold text-neutral-300 hover:bg-[#1E2722] transition"

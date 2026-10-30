@@ -113,7 +113,18 @@ export class PesapalService {
       throw new Error(`Pesapal authentication failed [${response.status}]: ${errText}`);
     }
 
-    const data: AuthTokenResponse = await response.json();
+    const rawText = await response.text();
+    let data: any = {};
+    try {
+      data = JSON.parse(rawText);
+    } catch {
+      throw new Error(`Pesapal returned non-JSON authentication response (${response.status}): ${rawText.slice(0, 150) || "Empty body"}`);
+    }
+
+    if (!data?.token) {
+      throw new Error(data?.message || data?.error?.message || "Pesapal authentication failed: No bearer token returned.");
+    }
+
     this.cachedToken = data.token;
     this.tokenExpiresAt = new Date(data.expiryDate).getTime();
 

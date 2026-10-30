@@ -19,3 +19,11 @@ yarn-error.log*
 .vendor_staff.json
 tsconfig.tsbuildinfo
 /tmp/*_cookie.txt
+
+# Testing, Scratch & Mock files
+test_*.ts
+test_*.js
+*.test.ts
+*.spec.ts
+demurrage.log
+src/app/checkout/mock-pesapal/

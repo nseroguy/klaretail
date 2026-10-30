@@ -1,113 +1,132 @@
-import { NextResponse } from 'next/server';
-import type { NextRequest } from 'next/server';
+import { NextResponse, type NextRequest } from 'next/server';
 import { db } from '@/db';
 import { sql } from 'drizzle-orm';
-import { logPlatformAudit } from '@/utils/auditLogger';
 
 export const dynamic = 'force-dynamic';
 
-export async function GET(request: NextRequest) {
+export async function GET(req: NextRequest) {
   try {
-    const rawCookie = request.cookies.get('staff_session')?.value;
+    const rawCookie = 
+      req.cookies.get('session_token')?.value || 
+      req.cookies.get('staff_session')?.value || 
+      req.cookies.get('klaretail_session')?.value ||
+      req.cookies.get('vendor_session')?.value;
+
     if (!rawCookie) {
-      return NextResponse.json({ success: false, message: 'Unauthorized.' }, { status: 401 });
+      return NextResponse.json({ success: false, message: 'Unauthorized: Session missing.' }, { status: 401 });
     }
 
-    let session: any = null;
+    let session: any;
     try {
-      let decoded = rawCookie;
-      while (decoded.includes('%')) decoded = decodeURIComponent(decoded);
-      session = JSON.parse(decoded);
+      let dec = rawCookie;
+      while (dec.includes('%')) dec = decodeURIComponent(dec);
+      session = JSON.parse(dec);
     } catch {
-      return NextResponse.json({ success: false, message: 'Invalid session token.' }, { status: 401 });
+      return NextResponse.json({ success: false, message: 'Invalid session format' }, { status: 401 });
     }
 
-    if (!['vendor_owner', 'super_admin', 'admin'].includes(session.role)) {
-      return NextResponse.json({ success: false, message: 'Forbidden.' }, { status: 403 });
+    const { searchParams } = new URL(req.url);
+    const querySlug = searchParams.get('slug');
+    const queryVendorId = searchParams.get('vendorId');
+
+    const targetSlug = querySlug || session.vendorSlug || null;
+    const targetVendorId = queryVendorId || session.vendorId || null;
+    const targetUserId = session.id || session.userId || null;
+
+    let vendorRes: any = null;
+
+    if (targetSlug) {
+      vendorRes = await db.execute(sql`
+        SELECT id, name, slug, owner_id FROM vendors WHERE slug = ${targetSlug} LIMIT 1;
+      `);
     }
 
-    const vendorRes: any = await db.execute(sql`
-      SELECT id::text AS id FROM vendors WHERE owner_id = ${session.id}::uuid OR name ILIKE '%Kiwaatule%' LIMIT 1
-    `);
+    if ((!vendorRes || (!Array.isArray(vendorRes) && !vendorRes?.rows?.length)) && targetVendorId) {
+      vendorRes = await db.execute(sql`
+        SELECT id, name, slug, owner_id FROM vendors WHERE id = ${targetVendorId}::uuid LIMIT 1;
+      `);
+    }
+
+    if (!vendorRes || (!Array.isArray(vendorRes) && !vendorRes?.rows?.length)) {
+      vendorRes = await db.execute(sql`
+        SELECT id, name, slug, owner_id FROM vendors WHERE owner_id = ${targetUserId}::uuid LIMIT 1;
+      `);
+    }
+
     const vendor = Array.isArray(vendorRes) ? vendorRes[0] : vendorRes?.rows?.[0];
 
-    const dishesRes: any = await db.execute(sql`
+    if (!vendor) {
+      return NextResponse.json({ success: true, vendor: null, products: [], items: [], menu: [], message: 'Vendor not found' });
+    }
+
+    const itemsRes: any = await db.execute(sql`
       SELECT 
         id::text AS id,
         name,
-        description,
-        category,
         price,
+        description,
         is_available AS "isAvailable",
         created_at AS "createdAt"
       FROM menu_items
-      WHERE vendor_id = ${vendor?.id}::uuid OR vendor_id IS NULL
-      ORDER BY category ASC, name ASC
+      WHERE vendor_id = ${vendor.id}::uuid
+      ORDER BY name ASC;
     `);
 
-    const products = Array.isArray(dishesRes) ? dishesRes : (dishesRes?.rows || []);
+    const items = Array.isArray(itemsRes) ? itemsRes : itemsRes?.rows || [];
 
     return NextResponse.json({
       success: true,
-      products
+      vendor: { id: vendor.id, name: vendor.name, slug: vendor.slug },
+      products: items, // required by fetchMenu in orders/page.tsx
+      items,
+      menu: items,
     });
   } catch (error: any) {
-    return NextResponse.json({ success: false, message: error.message || 'Failed to load menu.' }, { status: 500 });
+    console.error('[/api/vendor/menu GET] Error:', error.message);
+    return NextResponse.json({ success: false, message: error.message }, { status: 500 });
   }
 }
 
-export async function PATCH(request: NextRequest) {
+export async function PATCH(req: NextRequest) {
   try {
-    const rawCookie = request.cookies.get('staff_session')?.value;
+    const rawCookie = 
+      req.cookies.get('session_token')?.value || 
+      req.cookies.get('staff_session')?.value || 
+      req.cookies.get('klaretail_session')?.value ||
+      req.cookies.get('vendor_session')?.value;
+
     if (!rawCookie) {
-      return NextResponse.json({ success: false, message: 'Unauthorized.' }, { status: 401 });
+      return NextResponse.json({ success: false, message: 'Unauthorized: Session missing.' }, { status: 401 });
     }
 
-    let session: any = null;
-    try {
-      let decoded = rawCookie;
-      while (decoded.includes('%')) decoded = decodeURIComponent(decoded);
-      session = JSON.parse(decoded);
-    } catch {
-      return NextResponse.json({ success: false, message: 'Invalid session.' }, { status: 401 });
-    }
+    const body = await req.json();
+    const id = body.productId || body.itemId;
+    const isAvailable = Boolean(body.isAvailable);
 
-    const { productId, isAvailable, price } = await request.json();
-    if (!productId) {
-      return NextResponse.json({ success: false, message: 'Dish identifier (productId) is required.' }, { status: 400 });
+    if (!id) {
+      return NextResponse.json({ success: false, message: 'Missing productId parameter.' }, { status: 400 });
     }
 
     const updatedRes: any = await db.execute(sql`
       UPDATE menu_items
-      SET 
-        is_available = COALESCE(${isAvailable !== undefined ? isAvailable : null}, is_available),
-        price = COALESCE(${price !== undefined ? price : null}, price),
-        updated_at = NOW()
-      WHERE id = ${productId}::uuid
-      RETURNING id::text AS id, name, price, is_available AS "isAvailable"
+      SET is_available = ${isAvailable}
+      WHERE id = ${id}::uuid
+      RETURNING id, name, is_available AS "isAvailable", vendor_id AS "vendorId";
     `);
 
-    const product = Array.isArray(updatedRes) ? updatedRes[0] : updatedRes?.rows?.[0];
-    if (!product) {
-      return NextResponse.json({ success: false, message: 'Menu item not found.' }, { status: 404 });
-    }
+    const updated = Array.isArray(updatedRes) ? updatedRes[0] : updatedRes?.rows?.[0];
 
-    await logPlatformAudit({
-      request,
-      action: 'VENDOR_MENU_ITEM_UPDATED',
-      targetEntity: 'menu_items',
-      targetId: productId,
-      actorId: session.id,
-      actorRole: session.role,
-      metadata: { productId, isAvailable, price }
-    });
+    if (!updated) {
+      return NextResponse.json({ success: false, message: 'Item not found in database.' }, { status: 404 });
+    }
 
     return NextResponse.json({
       success: true,
-      message: `${product.name} stock status updated.`,
-      product
+      message: `Item "${updated.name}" is now ${updated.isAvailable ? 'available' : 'marked as 86 (unavailable)'}.`,
+      item: updated,
     });
   } catch (error: any) {
-    return NextResponse.json({ success: false, message: error.message || 'Failed to update menu dish.' }, { status: 500 });
+    console.error('[/api/vendor/menu PATCH] Error:', error.message);
+    return NextResponse.json({ success: false, message: error.message }, { status: 500 });
   }
 }

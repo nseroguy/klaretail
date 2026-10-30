@@ -1,4 +1,11 @@
-'use client';
+"use client";
+
+import dynamic from "next/dynamic";
+
+const LocationPickerMap = dynamic(
+  () => import("@/components/checkout/LocationPickerMap"),
+  { ssr: false }
+);
 
 import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
@@ -10,12 +17,110 @@ export default function CheckoutPage() {
   const [customer, setCustomer] = useState<any>(null);
   const [addresses, setAddresses] = useState<any[]>([]);
   const [selectedAddressId, setSelectedAddressId] = useState<string | null>(null);
-  const [paymentMethod, setPaymentMethod] = useState<'CASH_ON_DELIVERY' | 'MTN_MOMO' | 'AIRTEL_MONEY'>('CASH_ON_DELIVERY');
+  const [paymentMethod, setPaymentMethod] = useState<"CASH_ON_DELIVERY" | "MTN_MOMO" | "AIRTEL_MONEY" | "B2B_INVOICE">("CASH_ON_DELIVERY");
+  const [channel, setChannel] = useState<"retail" | "wholesale">("retail");
+  const [poNumber, setPoNumber] = useState("");
+  const [taxId, setTaxId] = useState("");
+  const [paymentTerms, setPaymentTerms] = useState<"immediate" | "net_15" | "net_30">("immediate");
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
   const [isPlacingOrder, setIsPlacingOrder] = useState(false);
+  const [cartSummary, setCartSummary] = useState<{
+    items: any[];
+    subtotal: number;
+    deliveryFee: number;
+    channel: string;
+    vendorId?: string;
+    vendorSlug?: string;
+  }>({
+    items: [] as any[],
+    subtotal: 0,
+    deliveryFee: 3000,
+    channel: "retail",
+  });
   const [orderError, setOrderError] = useState<string | null>(null);
+  const [deliveryCoords, setDeliveryCoords] = useState<{ lat: number; lng: number }>({
+    lat: 0.3136,
+    lng: 32.5811,
+  });
+  const [deliveryTierLabel, setDeliveryTierLabel] = useState<string>("");
+
+  const handleLocationSelect = async (coords: { lat: number; lng: number }) => {
+    setDeliveryCoords(coords);
+    const vendorId = cartSummary.vendorId;
+    if (!vendorId) return;
+
+    try {
+      const res = await fetch("/api/delivery/quote", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          vendorId,
+          customerLat: coords.lat,
+          customerLng: coords.lng,
+          channel: cartSummary.channel,
+          items: cartSummary.items,
+        }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setCartSummary((prev) => ({
+          ...prev,
+          deliveryFee: data.deliveryFee,
+        }));
+        setDeliveryTierLabel(data.tierLabel);
+      }
+    } catch (err) {
+      console.error("Failed to fetch delivery quote:", err);
+    }
+  };
+
 
   useEffect(() => {
+    if (typeof window !== "undefined") {
+      const params = new URLSearchParams(window.location.search);
+      const urlChannel = params.get("channel");
+      if (urlChannel === "wholesale") {
+        setChannel("wholesale");
+        setPaymentMethod("B2B_INVOICE");
+        setPaymentTerms("net_30");
+      }
+    }
+    // Hydrate cart summary from local storage
+    if (typeof window !== "undefined") {
+      try {
+        const raw = localStorage.getItem("cart") || localStorage.getItem("klaretail_cart");
+        if (raw) {
+          const parsed = JSON.parse(raw);
+          const resolvedItems: any[] = Array.isArray(parsed)
+            ? parsed
+            : Array.isArray(parsed?.items)
+            ? parsed.items
+            : typeof parsed?.items === "object" && parsed.items !== null
+            ? Object.values(parsed.items)
+            : [];
+
+          const calculatedSubtotal = resolvedItems.reduce(
+            (sum: number, it: any) => sum + (Number(it?.price) || 0) * (Number(it?.quantity) || 1),
+            0
+          );
+
+          const isWholesale = (typeof window !== "undefined" && new URLSearchParams(window.location.search).get("channel") === "wholesale") || parsed?.channel === "wholesale" || channel === "wholesale";
+          const resolvedFee = Number(parsed?.deliveryFee) || (isWholesale ? 15000 : 3000);
+
+          setCartSummary({
+            items: resolvedItems,
+            subtotal: Number(parsed?.subtotal) || calculatedSubtotal,
+            deliveryFee: resolvedFee,
+            channel: isWholesale ? "wholesale" : "retail",
+            vendorId: parsed?.vendorId || parsed?.vendor?.id,
+            vendorSlug: parsed?.vendorSlug || parsed?.vendor?.slug,
+          });
+        }
+      } catch (e) {
+        console.error("Failed to hydrate cartSummary:", e);
+      }
+    }
+
     async function loadProfile() {
       try {
         const res = await fetch('/api/customer/profile');
@@ -65,13 +170,52 @@ export default function CheckoutPage() {
         body: JSON.stringify({
           deliveryAddressId: selectedAddressId,
           paymentMethod,
+          channel,
+          paymentTerms: channel === "wholesale" ? paymentTerms : "immediate",
+          poNumber: channel === "wholesale" && poNumber ? poNumber.trim() : undefined,
+          taxId: channel === "wholesale" && taxId ? taxId.trim() : undefined,
+          ...(typeof window !== "undefined"
+            ? (() => {
+                try {
+                  const raw = localStorage.getItem("cart") || localStorage.getItem("klaretail_cart");
+                  if (raw) {
+                    const parsed = JSON.parse(raw);
+                    return {
+                      vendorId: parsed.vendorId || parsed.vendor?.id,
+                      vendorSlug: parsed.vendorSlug || parsed.vendor?.slug,
+                      items: Array.isArray(parsed?.items) ? parsed.items : typeof parsed?.items === 'object' && parsed?.items !== null ? Object.values(parsed.items) : [],
+                      subtotal: parsed.subtotal,
+                      deliveryFee: parsed.deliveryFee,
+                    };
+                  }
+                } catch {}
+                return {};
+              })()
+            : {}),
         }),
       });
 
       const data = await res.json();
       if (!res.ok || !data.success) throw new Error(data.message || 'Order failed.');
 
-      // Route customer straight to real-time tracking page
+      // Route based on payment method
+      if (paymentMethod !== "CASH_ON_DELIVERY") {
+        try {
+          const pesaRes = await fetch("/api/pesapal/submit-order", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ orderId: data.orderId }),
+          });
+          const pesaData = await pesaRes.json();
+          if (pesaData.redirect_url || pesaData.redirectUrl) {
+            window.location.href = pesaData.redirect_url || pesaData.redirectUrl;
+            return;
+          }
+        } catch (pesaErr) {
+          console.error("Pesapal submission failed:", pesaErr);
+        }
+      }
+
       router.push(`/orders/${data.orderId}`);
     } catch (err: any) {
       setOrderError(err.message);
@@ -164,6 +308,19 @@ export default function CheckoutPage() {
                 {customer ? 'No saved addresses found. Add an address to proceed.' : 'Log in to select your saved delivery address.'}
               </p>
             )}
+          
+            <div className="mt-4 pt-4 border-t border-zinc-100 dark:border-zinc-800">
+              <LocationPickerMap
+                initialLat={deliveryCoords.lat}
+                initialLng={deliveryCoords.lng}
+                onLocationSelect={handleLocationSelect}
+              />
+              {deliveryTierLabel && (
+                <div className="mt-2 text-xs font-mono text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/30 px-3 py-1.5 rounded-lg border border-emerald-500/20">
+                  {deliveryTierLabel}
+                </div>
+              )}
+            </div>
           </div>
 
           {/* 3. Payment Method Picker */}
@@ -262,11 +419,20 @@ export default function CheckoutPage() {
         <div className="rounded-2xl border border-zinc-200 dark:border-zinc-800 p-5 bg-white dark:bg-zinc-900 shadow-sm h-fit space-y-4">
           <h2 className="text-sm font-bold uppercase tracking-wider text-zinc-500">Order Summary</h2>
           <div className="space-y-2 text-sm text-zinc-600 dark:text-zinc-400 border-b border-zinc-100 dark:border-zinc-800 pb-3">
-            <div className="flex justify-between"><span>Items Subtotal</span><span className="font-mono">UGX 45,000</span></div>
-            <div className="flex justify-between"><span>Delivery Fee (Kampala)</span><span className="font-mono">UGX 5,000</span></div>
+            <div className="flex justify-between">
+              <span>Items Subtotal ({(Array.isArray(cartSummary?.items) ? cartSummary.items : []).reduce((acc: number, i: any) => acc + (Number(i?.quantity) || 1), 0)} items)</span>
+              <span className="font-mono">UGX {cartSummary.subtotal.toLocaleString()}</span>
+            </div>
+            <div className="flex justify-between">
+              <span>Delivery Fee {deliveryTierLabel ? `(${deliveryTierLabel})` : cartSummary.channel === "wholesale" ? "(Freight)" : "(Express)"}</span>
+              <span className="font-mono">UGX {cartSummary.deliveryFee.toLocaleString()}</span>
+            </div>
           </div>
           <div className="flex justify-between font-bold text-base">
-            <span>Total Amount</span><span className="font-mono text-emerald-600 dark:text-emerald-400">UGX 50,000</span>
+            <span>Total Amount</span>
+            <span className="font-mono text-emerald-600 dark:text-emerald-400">
+              UGX {(cartSummary.subtotal + cartSummary.deliveryFee).toLocaleString()}
+            </span>
           </div>
 
           {orderError && (

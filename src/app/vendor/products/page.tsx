@@ -3,6 +3,7 @@
 import React, { useState, useEffect, useMemo } from "react";
 import Link from "next/link";
 import VendorLayout from "@/components/vendor/VendorLayout";
+import BarcodeScannerModal from "@/components/common/BarcodeScannerModal";
 import {
   Package,
   Plus,
@@ -14,6 +15,11 @@ import {
   Utensils,
   Layers,
   Barcode,
+  Camera,
+  Loader2,
+  Trash2,
+  Upload,
+  Scan,
   Edit2,
   Eye,
   EyeOff,
@@ -31,6 +37,10 @@ interface ProductItem {
   category: string;
   basePrice: string | number;
   costPrice?: string | number;
+  wholesalePrice?: string | number;
+  moq?: number;
+  weightKg?: string | number;
+  imageUrl?: string;
   stockQuantity: number;
   trackInventory: boolean;
   requiresKitchenPrep: boolean;
@@ -47,6 +57,7 @@ export default function VendorProductManagerPage() {
 
   // Modal State
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [isScannerOpen, setIsScannerOpen] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
   const [currentId, setCurrentId] = useState<string | null>(null);
 
@@ -58,9 +69,44 @@ export default function VendorProductManagerPage() {
   const [category, setCategory] = useState("Mains");
   const [basePrice, setBasePrice] = useState("");
   const [costPrice, setCostPrice] = useState("");
+  const [wholesalePrice, setWholesalePrice] = useState("");
+  const [moq, setMoq] = useState("1");
+  const [weightKg, setWeightKg] = useState("1.0");
+  const [imageUrl, setImageUrl] = useState("");
+  const [isUploadingImage, setIsUploadingImage] = useState(false);
   const [stockQuantity, setStockQuantity] = useState("0");
   const [trackInventory, setTrackInventory] = useState(false);
   const [requiresKitchenPrep, setRequiresKitchenPrep] = useState(true);
+
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setIsUploadingImage(true);
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
+
+      const res = await fetch("/api/upload", {
+        method: "POST",
+        body: formData,
+      });
+
+      const json = await res.json();
+      if (!res.ok || !json.success) {
+        throw new Error(json.message || "Failed to upload image.");
+      }
+
+      setImageUrl(json.url);
+      setStatusMsg({ text: "Product image uploaded successfully.", type: "success" });
+      setTimeout(() => setStatusMsg(null), 3000);
+    } catch (err: any) {
+      setStatusMsg({ text: err.message, type: "error" });
+    } finally {
+      setIsUploadingImage(false);
+      e.target.value = "";
+    }
+  };
 
   const loadProducts = async () => {
     setIsLoading(true);
@@ -470,7 +516,7 @@ export default function VendorProductManagerPage() {
                 <div className="grid grid-cols-2 gap-3">
                   <div>
                     <label className="block text-slate-400 font-semibold mb-1">
-                      Selling Price (UGX) <span className="text-rose-400">*</span>
+                      Retail Price (UGX) <span className="text-rose-400">*</span>
                     </label>
                     <input
                       type="number"
@@ -493,14 +539,138 @@ export default function VendorProductManagerPage() {
                   </div>
                 </div>
 
+                <div className="grid grid-cols-3 gap-2.5 bg-slate-900/60 p-2.5 rounded-xl border border-slate-800">
+                  <div>
+                    <label className="block text-slate-400 font-semibold mb-1">Wholesale (UGX)</label>
+                    <input
+                      type="number"
+                      placeholder="32000"
+                      value={wholesalePrice}
+                      onChange={(e) => setWholesalePrice(e.target.value)}
+                      className="w-full bg-slate-900 border border-slate-700 rounded-xl p-2 text-cyan-400 font-semibold focus:outline-none focus:border-cyan-500 text-right"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-slate-400 font-semibold mb-1">Min Order (MOQ)</label>
+                    <input
+                      type="number"
+                      min="1"
+                      placeholder="1"
+                      value={moq}
+                      onChange={(e) => setMoq(e.target.value)}
+                      className="w-full bg-slate-900 border border-slate-700 rounded-xl p-2 text-white focus:outline-none focus:border-emerald-500 text-center"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-slate-400 font-semibold mb-1">Weight (KG)</label>
+                    <input
+                      type="number"
+                      step="0.1"
+                      min="0.1"
+                      placeholder="1.0"
+                      value={weightKg}
+                      onChange={(e) => setWeightKg(e.target.value)}
+                      className="w-full bg-slate-900 border border-slate-700 rounded-xl p-2 text-white focus:outline-none focus:border-emerald-500 text-center"
+                    />
+                  </div>
+                </div>
+
                 <div>
-                  <label className="block text-slate-400 font-semibold mb-1">Barcode / EAN</label>
+                  <label className="block text-slate-400 font-semibold mb-1">Product Photograph</label>
+                  
+                  {imageUrl ? (
+                    <div className="relative w-full h-36 rounded-2xl overflow-hidden border border-slate-700 bg-slate-950 flex items-center justify-center group">
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img
+                        src={imageUrl}
+                        alt="Product preview"
+                        className="w-full h-full object-cover"
+                      />
+                      <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-3">
+                        <label className="p-2.5 rounded-xl bg-slate-800/90 text-white hover:bg-slate-700 border border-slate-600 cursor-pointer flex items-center gap-1.5 text-xs font-mono font-bold shadow-lg">
+                          <Upload className="w-4 h-4 text-emerald-400" />
+                          <span>Replace</span>
+                          <input
+                            type="file"
+                            accept="image/*"
+                            onChange={handleFileUpload}
+                            className="hidden"
+                          />
+                        </label>
+                        <button
+                          type="button"
+                          onClick={() => setImageUrl("")}
+                          className="p-2.5 rounded-xl bg-rose-600/90 hover:bg-rose-500 text-white border border-rose-500 flex items-center gap-1.5 text-xs font-mono font-bold shadow-lg cursor-pointer"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                          <span>Remove</span>
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="border-2 border-dashed border-slate-700 hover:border-emerald-500/60 rounded-2xl p-4 bg-slate-900/50 transition-colors text-center relative">
+                      {isUploadingImage ? (
+                        <div className="flex flex-col items-center justify-center py-4 gap-2 text-emerald-400 font-mono text-xs">
+                          <Loader2 className="w-6 h-6 animate-spin" />
+                          <span>Uploading image...</span>
+                        </div>
+                      ) : (
+                        <div className="flex flex-col items-center justify-center gap-2">
+                          <div className="flex items-center justify-center gap-2">
+                            <label className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 text-xs font-mono font-bold cursor-pointer transition shadow-sm active:scale-95">
+                              <Upload className="w-4 h-4 text-emerald-400" />
+                              <span>Choose Photo</span>
+                              <input
+                                type="file"
+                                accept="image/*"
+                                onChange={handleFileUpload}
+                                className="hidden"
+                              />
+                            </label>
+
+                            <label className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-emerald-500/15 hover:bg-emerald-500/25 border border-emerald-500/30 text-emerald-300 text-xs font-mono font-bold cursor-pointer transition shadow-sm active:scale-95">
+                              <Camera className="w-4 h-4 text-emerald-400" />
+                              <span>Take Picture</span>
+                              <input
+                                type="file"
+                                accept="image/*"
+                                capture="environment"
+                                onChange={handleFileUpload}
+                                className="hidden"
+                              />
+                            </label>
+                          </div>
+                          <p className="text-[10px] text-slate-500 font-mono mt-0.5">
+                            JPEG, PNG, WEBP up to 10MB • Direct upload
+                          </p>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+
+                <div>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="text-slate-400 font-semibold">Barcode / EAN / QR</label>
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        setIsScannerOpen(true);
+                      }}
+                      className="flex items-center gap-1.5 text-[11px] font-mono font-bold text-emerald-400 hover:text-emerald-300 bg-emerald-500/15 hover:bg-emerald-500/25 px-2.5 py-1 rounded-lg border border-emerald-500/30 transition cursor-pointer relative z-20"
+                    >
+                      <Camera className="w-3.5 h-3.5" />
+                      <span>Scan Code</span>
+                    </button>
+                  </div>
                   <input
                     type="text"
-                    placeholder="Barcode for POS quick scan (e.g. 700105)"
+                    placeholder="Scan with camera, laser, or type (e.g. 700105)"
                     value={barcode}
                     onChange={(e) => setBarcode(e.target.value)}
-                    className="w-full bg-slate-900 border border-slate-700 rounded-xl p-2 text-white focus:outline-none focus:border-emerald-500"
+                    className="w-full bg-slate-900 border border-slate-700 rounded-xl p-2 text-white font-mono focus:outline-none focus:border-emerald-500"
                   />
                 </div>
 
@@ -557,6 +727,16 @@ export default function VendorProductManagerPage() {
           </div>
         )}
       </div>
+          <BarcodeScannerModal
+        isOpen={isScannerOpen}
+        onClose={() => setIsScannerOpen(false)}
+        onScan={(scannedVal) => {
+          setBarcode(scannedVal);
+          setIsScannerOpen(false);
+          setStatusMsg({ text: `Barcode captured: ${scannedVal}`, type: "success" });
+          setTimeout(() => setStatusMsg(null), 3000);
+        }}
+      />
     </VendorLayout>
   );
 }

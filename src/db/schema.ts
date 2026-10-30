@@ -335,6 +335,10 @@ export const orders = pgTable('orders', {
   convenienceFee: integer('convenience_fee').notNull(),
   totalAmount: integer('total_amount').notNull(),
   paymentMethod: varchar('payment_method', { length: 30 }).notNull(), // 'pesapal' | 'cod'
+  channel: varchar('channel', { length: 30 }).default('retail').notNull(),
+  paymentTerms: varchar('payment_terms', { length: 30 }).default('immediate').notNull(),
+  poNumber: varchar('po_number', { length: 100 }),
+  taxId: varchar('tax_id', { length: 50 }),
   // COD Escrow Fields
   deliveryPin: varchar('delivery_pin', { length: 6 }),
   codAmountDue: integer('cod_amount_due').default(0),
@@ -356,6 +360,7 @@ export const orderItems = pgTable('order_items', {
   productId: varchar('product_id', { length: 255 }).notNull(),
   name: varchar('name', { length: 255 }).notNull(),
   unitPrice: integer('unit_price').notNull(),
+  vendorUnitPrice: integer('vendor_unit_price'),
   quantity: integer('quantity').notNull(),
   totalPrice: integer('total_price').notNull(),
   selectedModifiers: jsonb('selected_modifiers').$type<Array<{ groupName: string; optionName: string; priceDelta: number }>>().default([]),
@@ -633,6 +638,10 @@ export const products = pgTable("products", {
   category: varchar("category", { length: 64 }).default("General").notNull(),
   basePrice: numeric("base_price", { precision: 12, scale: 2 }).notNull().default("0"),
   costPrice: numeric("cost_price", { precision: 12, scale: 2 }).default("0"),
+  wholesalePrice: numeric("wholesale_price", { precision: 12, scale: 2 }),
+  weightKg: numeric("weight_kg", { precision: 8, scale: 2 }).default("1.0").notNull(),
+  moq: integer("moq").default(1).notNull(),
+  tierPricing: jsonb("tier_pricing").default([]),
   stockQuantity: integer("stock_quantity").default(0).notNull(),
   trackInventory: boolean("track_inventory").default(false).notNull(),
   requiresKitchenPrep: boolean("requires_kitchen_prep").default(false).notNull(),
@@ -679,4 +688,63 @@ export const posShifts = pgTable("pos_shifts", {
   notes: text("notes"),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+});
+
+export const payoutDestinations = pgTable('payout_destinations', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  userId: uuid('user_id').notNull().references(() => users.id),
+  channel: text('channel').notNull(), // 'MTN_MOMO', 'AIRTEL_MONEY', 'BANK_TRANSFER'
+  accountNumber: text('account_number').notNull(), // Phone number or Bank account
+  accountName: text('account_name').notNull(),
+  bankCode: text('bank_code'), // Optional for bank transfer
+  isDefault: boolean('is_default').default(true).notNull(),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+});
+
+// --- B2B UPSTREAM SUPPLY CHAIN ---
+export const b2bOrderStatusEnum = pgEnum("b2b_order_status", [
+  "DRAFT",
+  "SUBMITTED",
+  "ACCEPTED",
+  "IN_TRANSIT",
+  "DELIVERED_AND_RECEIVED",
+  "CANCELLED",
+]);
+
+export const wholesaleProductTiers = pgTable("wholesale_product_tiers", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  productId: uuid("product_id").notNull().references(() => products.id, { onDelete: "cascade" }),
+  wholesalerVendorId: uuid("wholesaler_vendor_id").notNull().references(() => vendors.id, { onDelete: "cascade" }),
+  unitOfMeasure: text("unit_of_measure").notNull(),
+  minOrderQuantity: integer("min_order_quantity").notNull().default(1),
+  tierPrice: integer("tier_price").notNull(),
+  stockUnitsAvailable: integer("stock_units_available").notNull().default(0),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+});
+
+export const b2bPurchaseOrders = pgTable("b2b_purchase_orders", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  orderNumber: text("order_number").notNull().unique(),
+  retailVendorId: uuid("retail_vendor_id").notNull().references(() => vendors.id),
+  wholesalerVendorId: uuid("wholesaler_vendor_id").notNull().references(() => vendors.id),
+  status: b2bOrderStatusEnum("status").notNull().default("SUBMITTED"),
+  subtotal: integer("subtotal").notNull(),
+  deliveryFee: integer("delivery_fee").notNull().default(0),
+  totalAmount: integer("total_amount").notNull(),
+  paymentTerms: text("payment_terms").notNull().default("PREPAID_WALLET"),
+  paymentStatus: text("payment_status").notNull().default("HELD_ESCROW"),
+  deliveryAddress: text("delivery_address").notNull(),
+  handoverPin: text("handover_pin").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+});
+
+export const b2bPurchaseOrderItems = pgTable("b2b_purchase_order_items", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  purchaseOrderId: uuid("purchase_order_id").notNull().references(() => b2bPurchaseOrders.id, { onDelete: "cascade" }),
+  productId: uuid("product_id").notNull().references(() => products.id),
+  unitOfMeasure: text("unit_of_measure").notNull(),
+  quantity: integer("quantity").notNull(),
+  unitPrice: integer("unit_price").notNull(),
+  totalPrice: integer("total_price").notNull(),
 });

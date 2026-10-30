@@ -1,7 +1,7 @@
-import { NextResponse } from 'next/server';
-import type { NextRequest } from 'next/server';
+import { NextResponse, type NextRequest } from 'next/server';
 import { db } from '@/db';
-import { sql } from 'drizzle-orm';
+import { users, wallets, walletLedger } from '@/db/schema';
+import { eq } from 'drizzle-orm';
 import { logPlatformAudit } from '@/utils/auditLogger';
 
 export const dynamic = 'force-dynamic';
@@ -22,66 +22,78 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ success: false, message: 'Invalid session.' }, { status: 401 });
     }
 
-    const { amount, reference, channel = 'CASH_OFFICE' } = await request.json();
+    const { amount, reference, channel = 'CASH_OFFICE', riderId: explicitRiderId } = await request.json();
     const remittanceAmount = Number(amount);
 
     if (!remittanceAmount || remittanceAmount <= 0) {
       return NextResponse.json({ success: false, message: 'A positive remittance amount is required.' }, { status: 400 });
     }
 
-    const phone = session?.phone;
-    const userId = session?.id;
+    const targetUserId = explicitRiderId || session?.id || session?.userId;
 
     // 1. Fetch courier profile
-    const riderResult: any = await db.execute(sql`
-      SELECT id::text AS id, name, phone, wallet_balance::numeric AS "walletBalance"
-      FROM riders
-      WHERE TRIM(phone) = ${phone.trim()}::text
-      LIMIT 1
-    `);
-    const rider = Array.isArray(riderResult) ? riderResult[0] : riderResult?.rows?.[0];
+    const [riderUser] = await db
+      .select()
+      .from(users)
+      .where(eq(users.id, targetUserId))
+      .limit(1);
 
-    if (!rider) {
+    if (!riderUser || riderUser.role !== 'rider') {
       return NextResponse.json({ success: false, message: 'Courier profile not found.' }, { status: 404 });
     }
 
-    const currentBalance = Number(rider.walletBalance);
-    if (remittanceAmount > currentBalance) {
-      return NextResponse.json({
-        success: false,
-        message: `Remittance amount (UGX ${remittanceAmount.toLocaleString()}) exceeds current cash-on-hand (UGX ${currentBalance.toLocaleString()}).`
-      }, { status: 422 });
+    let [riderWallet] = await db
+      .select()
+      .from(wallets)
+      .where(eq(wallets.userId, riderUser.id))
+      .limit(1);
+
+    if (!riderWallet) {
+      const [created] = await db
+        .insert(wallets)
+        .values({ userId: riderUser.id, balance: 0, heldFloat: 0 })
+        .returning();
+      riderWallet = created;
     }
 
+    const currentBalance = riderWallet.balance || 0;
+    const newBalance = currentBalance + remittanceAmount;
+
     // 2. Atomic settlement update
-    const updatedRiderResult: any = await db.execute(sql`
-      UPDATE riders
-      SET wallet_balance = wallet_balance - ${remittanceAmount},
-          updated_at = NOW()
-      WHERE id = ${rider.id}::uuid
-      RETURNING wallet_balance::numeric AS "newWalletBalance"
-    `);
+    await db.transaction(async (tx) => {
+      await tx
+        .update(wallets)
+        .set({ balance: newBalance })
+        .where(eq(wallets.id, riderWallet.id));
 
-    const newBalance = Array.isArray(updatedRiderResult) 
-      ? updatedRiderResult[0]?.newWalletBalance 
-      : updatedRiderResult?.rows?.[0]?.newWalletBalance;
+      await tx.insert(walletLedger).values({
+        walletId: riderWallet.id,
+        entryType: 'cod_deposit_hold',
+        amount: remittanceAmount,
+        balanceAfter: newBalance,
+        metadata: {
+          channel,
+          reference: reference || `REMIT-${Date.now()}`,
+          notes: `Courier cash remittance of UGX ${remittanceAmount.toLocaleString()} via ${channel}`,
+        },
+      });
 
-    // 3. Record audit log
-    await logPlatformAudit({
-      request,
-      action: 'COURIER_CASH_REMITTED',
-      targetEntity: 'riders',
-      targetId: rider.id,
-      actorId: userId,
-      actorRole: 'rider',
-      metadata: {
-        courier: rider.name,
-        remittedAmount: remittanceAmount,
-        previousBalance: currentBalance,
-        newBalance: Number(newBalance),
-        channel,
-        reference: reference || `REMIT-${Date.now()}`
-      }
+      await logPlatformAudit({
+        request,
+        action: 'COURIER_CASH_REMITTED',
+        targetEntity: 'wallets',
+        targetId: riderWallet.id,
+        actorId: session?.id || 'system',
+        actorRole: session?.role || 'rider',
+        metadata: {
+          courierPhone: riderUser.phone,
+          remittedAmount: remittanceAmount,
+          previousBalance: currentBalance,
+          newBalance,
+          channel,
+          reference: reference || `REMIT-${Date.now()}`,
+        },
+      });
     });
 
     return NextResponse.json({
@@ -89,11 +101,11 @@ export async function POST(request: NextRequest) {
       message: `Successfully remitted UGX ${remittanceAmount.toLocaleString()}.`,
       previousBalance: currentBalance,
       remittedAmount: remittanceAmount,
-      remainingBalance: Number(newBalance),
-      courier: rider.name
+      remainingBalance: newBalance,
+      courierPhone: riderUser.phone,
     });
-
   } catch (error: any) {
+    console.error('Remittance processing failed:', error);
     return NextResponse.json({ success: false, message: error.message || 'Remittance processing failed.' }, { status: 500 });
   }
 }

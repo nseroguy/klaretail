@@ -163,6 +163,7 @@ export async function POST(request: NextRequest) {
 }
 
 export async function PATCH(request: NextRequest) {
+    const credPath = require("path").join(process.cwd(), ".vendor_credentials.json");
   try {
     const body = await request.json();
     const { vendorId, action, value } = body;
