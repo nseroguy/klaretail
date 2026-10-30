@@ -87,7 +87,7 @@ export async function POST(request: NextRequest) {
     }
 
     const isCod = order.paymentMethod === 'cod' || order.paymentMethod === 'CASH_ON_DELIVERY';
-    const codReceived = isCod
+    const codReceived = isCod 
       ? Number(cashCollected || order.codAmountDue || order.totalAmount)
       : 0.00;
 
@@ -101,7 +101,6 @@ export async function POST(request: NextRequest) {
       WHERE id = ${order.id}::uuid
     `);
 
-    // 5. Update courier wallet balance
     // 5. Update courier wallet balance and trip lock if limit exceeded
     await db.execute(sql`
       UPDATE riders
