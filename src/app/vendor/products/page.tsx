@@ -5,6 +5,7 @@ import Link from "next/link";
 import VendorLayout from "@/components/vendor/VendorLayout";
 import BarcodeScannerModal from "@/components/common/BarcodeScannerModal";
 import {
+  Sparkles,
   Package,
   Plus,
   Search,
@@ -141,6 +142,7 @@ export default function VendorProductManagerPage() {
     setStockQuantity("50");
     setTrackInventory(false);
     setRequiresKitchenPrep(true);
+    setImageUrl("");
     setIsModalOpen(true);
   };
 
@@ -157,6 +159,7 @@ export default function VendorProductManagerPage() {
     setStockQuantity(String(p.stockQuantity));
     setTrackInventory(p.trackInventory);
     setRequiresKitchenPrep(p.requiresKitchenPrep);
+    setImageUrl(p.imageUrl || "");
     setIsModalOpen(true);
   };
 
@@ -180,6 +183,7 @@ export default function VendorProductManagerPage() {
         stockQuantity: Number(stockQuantity) || 0,
         trackInventory,
         requiresKitchenPrep,
+        imageUrl: imageUrl.trim() || null,
       };
 
       if (isEditing) {
@@ -378,12 +382,23 @@ export default function VendorProductManagerPage() {
                     return (
                       <tr key={p.id} className="hover:bg-slate-800/30 transition">
                         <td className="p-3.5 font-sans font-semibold text-white">
-                          <div>{p.name}</div>
-                          {p.description && (
-                            <div className="text-[11px] font-normal text-slate-500 line-clamp-1 mt-0.5">
-                              {p.description}
+                          <div className="flex items-center gap-2.5">
+                            <div className="w-9 h-9 rounded-lg overflow-hidden bg-slate-800 shrink-0 border border-slate-700/80 flex items-center justify-center">
+                              {p.imageUrl ? (
+                                <img src={p.imageUrl} alt={p.name} className="w-full h-full object-cover" />
+                              ) : (
+                                <Utensils className="w-4 h-4 text-slate-500" />
+                              )}
                             </div>
-                          )}
+                            <div className="min-w-0">
+                              <div className="truncate">{p.name}</div>
+                              {p.description && (
+                                <div className="text-[11px] font-normal text-slate-500 line-clamp-1 mt-0.5">
+                                  {p.description}
+                                </div>
+                              )}
+                            </div>
+                          </div>
                         </td>
                         <td className="p-3.5">
                           <span className="px-2 py-0.5 rounded-md bg-slate-800 text-slate-300 border border-slate-700">
@@ -476,6 +491,57 @@ export default function VendorProductManagerPage() {
               </div>
 
               <form onSubmit={handleSaveProduct} className="space-y-3.5 text-xs">
+                {/* Image URL & File Upload Input */}
+                <div className="bg-slate-900/60 p-3 rounded-xl border border-slate-800 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <label className="text-slate-400 font-semibold text-[11px] flex items-center gap-1.5">
+                      <Sparkles className="w-3.5 h-3.5 text-cyan-400" />
+                      <span>Product Image (URL or Upload)</span>
+                    </label>
+                    {imageUrl && (
+                      <button
+                        type="button"
+                        onClick={() => setImageUrl("")}
+                        className="text-[10px] text-rose-400 hover:text-rose-300 font-mono"
+                      >
+                        Clear Image
+                      </button>
+                    )}
+                  </div>
+
+                  <div className="flex gap-2 items-center">
+                    {imageUrl && (
+                      <div className="w-11 h-11 rounded-lg overflow-hidden shrink-0 border border-slate-700 bg-slate-950 flex items-center justify-center">
+                        <img
+                          src={imageUrl}
+                          alt="Preview"
+                          className="w-full h-full object-cover"
+                          onError={(e) => {
+                            (e.currentTarget as HTMLImageElement).src = "";
+                          }}
+                        />
+                      </div>
+                    )}
+                    <input
+                      type="url"
+                      placeholder="Paste image URL (https://...)"
+                      value={imageUrl}
+                      onChange={(e) => setImageUrl(e.target.value)}
+                      className="flex-1 bg-slate-900 border border-slate-700 rounded-xl p-2 text-white placeholder-slate-600 focus:outline-none focus:border-cyan-500 font-mono text-xs"
+                    />
+                    <label className="px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 cursor-pointer font-bold text-[11px] whitespace-nowrap transition">
+                      {isUploadingImage ? "..." : "Upload"}
+                      <input
+                        type="file"
+                        accept="image/*"
+                        className="hidden"
+                        onChange={handleFileUpload}
+                        disabled={isUploadingImage}
+                      />
+                    </label>
+                  </div>
+                </div>
+
                 <div>
                   <label className="block text-slate-400 font-semibold mb-1">
                     Product Name <span className="text-rose-400">*</span>
@@ -643,6 +709,16 @@ export default function VendorProductManagerPage() {
                           <p className="text-[10px] text-slate-500 font-mono mt-0.5">
                             JPEG, PNG, WEBP up to 10MB • Direct upload
                           </p>
+
+                          <div className="flex items-center gap-2 w-full max-w-sm pt-2 border-t border-slate-800/80">
+                            <input
+                              type="url"
+                              placeholder="Or paste direct image URL (https://...)"
+                              value={imageUrl}
+                              onChange={(e) => setImageUrl(e.target.value)}
+                              className="w-full bg-slate-950 border border-slate-700/80 rounded-xl px-2.5 py-1.5 text-white placeholder-slate-600 focus:outline-none focus:border-cyan-500 font-mono text-[11px]"
+                            />
+                          </div>
                         </div>
                       )}
                     </div>

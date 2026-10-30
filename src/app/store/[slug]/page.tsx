@@ -18,6 +18,8 @@ interface ProductItem {
   description?: string;
   price: number;
   sku?: string;
+  category?: string;
+  imageUrl?: string;
   isAvailable?: boolean;
 }
 
@@ -372,7 +374,7 @@ export default function UniversalStorefrontPage() {
           </div>
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3.5 sm:gap-5">
           {products.map((item) => {
             const isWholesale = vendor?.subCategory === "wholesale" || vendor?.category === "Wholesale";
             const customerPrice = isWholesale ? Math.round(item.price * 1.02) : item.price;
@@ -381,46 +383,108 @@ export default function UniversalStorefrontPage() {
               price: customerPrice, 
               vendorPrice: item.price 
             };
+            const inCartItem = cart.find((c) => c.id === item.id);
+            const inCartQty = inCartItem?.quantity || 0;
 
             return (
               <div
                 key={item.id}
-                className="bg-white dark:bg-[#0c101c] border border-zinc-200/90 dark:border-white/10 hover:border-zinc-300 dark:hover:border-white/25 transition-all duration-300 rounded-[24px] p-5 flex flex-col justify-between gap-4 shadow-sm hover:shadow-xl hover:-translate-y-1 group relative overflow-hidden"
+                className="bg-white dark:bg-[#0c101c] border border-zinc-200/90 dark:border-white/10 hover:border-zinc-300 dark:hover:border-white/20 transition-all duration-200 rounded-2xl sm:rounded-[24px] p-3.5 sm:p-5 flex flex-row sm:flex-col justify-between gap-3 sm:gap-4 shadow-sm hover:shadow-lg sm:hover:-translate-y-0.5 group relative overflow-hidden"
               >
-                <div>
-                  <div className="flex items-start justify-between gap-2">
-                    <h3 className="font-black text-base text-zinc-900 dark:text-white group-hover:text-cyan-600 dark:group-hover:text-cyan-300 transition-colors leading-snug">
-                      {item.name}
-                    </h3>
-                    {isWholesale && (
-                      <span className="px-2 py-0.5 rounded-lg bg-cyan-500/15 border border-cyan-400/30 text-[10px] font-mono font-bold text-cyan-700 dark:text-cyan-300 shrink-0">
-                        Wholesale
+                {/* Visual Image / Category Thumbnail Container */}
+                <div className="relative w-24 h-24 sm:w-full sm:h-44 sm:aspect-[4/3] rounded-xl sm:rounded-2xl overflow-hidden shrink-0 bg-zinc-100 dark:bg-white/5 order-2 sm:order-1 flex items-center justify-center">
+                  {item.imageUrl ? (
+                    <img
+                      src={item.imageUrl}
+                      alt={item.name}
+                      className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                      loading="lazy"
+                    />
+                  ) : (
+                    <div className="flex flex-col items-center justify-center text-zinc-400 dark:text-slate-500 gap-1.5">
+                      {vendor?.subCategory === "restaurant" || vendor?.subCategory === "fast_food" ? (
+                        <UtensilsCrossed className="w-7 h-7 sm:w-10 sm:h-10 stroke-[1.5] text-amber-500/60" />
+                      ) : (
+                        <Boxes className="w-7 h-7 sm:w-10 sm:h-10 stroke-[1.5] text-cyan-500/60" />
+                      )}
+                      <span className="text-[9px] sm:text-[10px] font-mono tracking-wider uppercase opacity-60">
+                        {item.category || "Product"}
                       </span>
-                    )}
-                  </div>
+                    </div>
+                  )}
 
-                  {item.description && (
-                    <p className="text-xs text-zinc-600 dark:text-slate-400 line-clamp-2 mt-2 leading-relaxed font-sans">
-                      {item.description}
-                    </p>
+                  {isWholesale && (
+                    <span className="absolute top-2 left-2 px-2 py-0.5 rounded-md bg-cyan-500/90 text-white backdrop-blur-sm text-[9px] sm:text-[10px] font-mono font-bold tracking-tight shadow-sm">
+                      Wholesale
+                    </span>
                   )}
                 </div>
 
-                <div className="flex items-center justify-between pt-3 border-t border-zinc-100 dark:border-white/5 font-mono">
-                  <div>
-                    <span className="text-[10px] text-zinc-400 dark:text-slate-500 block leading-none">PRICE</span>
-                    <span className="text-base font-black text-zinc-900 dark:text-white tracking-tight">
-                      UGX {customerPrice.toLocaleString()}
-                    </span>
+                {/* Details Section */}
+                <div className="flex flex-col justify-between flex-1 min-w-0 order-1 sm:order-2">
+                  <div className="space-y-1">
+                    <h3 className="font-black text-sm sm:text-base text-zinc-900 dark:text-white group-hover:text-cyan-600 dark:group-hover:text-cyan-300 transition-colors leading-snug line-clamp-2">
+                      {item.name}
+                    </h3>
+                    {item.description && (
+                      <p className="text-[11px] sm:text-xs text-zinc-500 dark:text-slate-400 line-clamp-2 leading-relaxed">
+                        {item.description}
+                      </p>
+                    )}
                   </div>
 
-                  <button
-                    onClick={() => addToCart(itemWithCustomerPrice)}
-                    className="px-4 py-2 rounded-xl bg-zinc-900 hover:bg-zinc-800 dark:bg-white dark:hover:bg-zinc-200 active:scale-95 text-white dark:text-zinc-950 font-black text-xs flex items-center gap-1.5 shadow-md transition cursor-pointer"
-                  >
-                    <Plus className="w-3.5 h-3.5 text-cyan-400 dark:text-cyan-600" />
-                    <span>Add</span>
-                  </button>
+                  <div className="flex items-center justify-between pt-2.5 sm:pt-3 mt-2 border-t border-zinc-100 dark:border-white/5 font-mono">
+                    <div className="flex flex-col">
+                      <span className="text-[9px] sm:text-[10px] text-zinc-400 dark:text-slate-500 font-semibold leading-none">UGX</span>
+                      <span className="text-xs sm:text-base font-black text-zinc-900 dark:text-white tracking-tight">
+                        {customerPrice.toLocaleString()}
+                      </span>
+                    </div>
+
+                    {/* Interactive Quantity Stepper for Mobile Ergonomics */}
+                    {inCartQty > 0 ? (
+                      <div className="flex items-center gap-1.5 sm:gap-2 bg-zinc-100 dark:bg-white/10 rounded-xl p-1 border border-zinc-200/80 dark:border-white/10">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (inCartQty <= 1) {
+                              const updated = cart.filter((c) => c.id !== item.id);
+                              setCart(updated);
+                              localStorage.setItem("klaretail_cart", JSON.stringify({ ...JSON.parse(localStorage.getItem("klaretail_cart") || "{}"), items: updated }));
+                            } else {
+                              const updated = cart.map((c) => c.id === item.id ? { ...c, quantity: c.quantity - 1 } : c);
+                              setCart(updated);
+                              localStorage.setItem("klaretail_cart", JSON.stringify({ ...JSON.parse(localStorage.getItem("klaretail_cart") || "{}"), items: updated }));
+                            }
+                          }}
+                          className="w-7 h-7 sm:w-8 sm:h-8 flex items-center justify-center rounded-lg bg-white dark:bg-slate-800 text-zinc-800 dark:text-slate-200 hover:bg-zinc-200 dark:hover:bg-slate-700 active:scale-95 transition shadow-xs text-xs font-bold"
+                          aria-label="Decrease quantity"
+                        >
+                          <Minus className="w-3.5 h-3.5" />
+                        </button>
+                        <span className="text-xs sm:text-sm font-black min-w-[18px] text-center text-zinc-900 dark:text-white">
+                          {inCartQty}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => addToCart(itemWithCustomerPrice)}
+                          className="w-7 h-7 sm:w-8 sm:h-8 flex items-center justify-center rounded-lg bg-zinc-900 dark:bg-white text-white dark:text-zinc-900 active:scale-95 transition shadow-xs text-xs font-bold"
+                          aria-label="Increase quantity"
+                        >
+                          <Plus className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => addToCart(itemWithCustomerPrice)}
+                        className="px-3 sm:px-4 py-2 sm:py-2.5 rounded-xl bg-zinc-900 hover:bg-zinc-800 dark:bg-white dark:hover:bg-zinc-200 active:scale-95 text-white dark:text-zinc-950 font-black text-xs flex items-center gap-1.5 shadow-sm transition cursor-pointer min-h-[38px]"
+                      >
+                        <Plus className="w-3.5 h-3.5 text-cyan-400 dark:text-cyan-600" />
+                        <span>Add</span>
+                      </button>
+                    )}
+                  </div>
                 </div>
               </div>
             );

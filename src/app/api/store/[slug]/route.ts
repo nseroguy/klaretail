@@ -31,6 +31,7 @@ export async function GET(
         price: products.basePrice,
         sku: products.sku,
         category: products.category,
+        imageUrl: products.imageUrl,
         isAvailable: products.isAvailable,
         requiresKitchenPrep: products.requiresKitchenPrep,
       })
