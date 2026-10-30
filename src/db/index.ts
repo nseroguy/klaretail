@@ -8,7 +8,9 @@ if (typeof dns.setDefaultResultOrder === 'function') {
   dns.setDefaultResultOrder('ipv4first');
 }
 
-const connectionString = (process.env.DATABASE_URL || '').replace('-pooler', '');
+const rawUrl = process.env.DATABASE_URL || '';
+// Keep the Neon pooler endpoint for serverless cold-start resilience
+const connectionString = rawUrl;
 
 const client = postgres(connectionString, {
   ssl: 'require',
