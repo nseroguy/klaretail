@@ -19,7 +19,14 @@ export async function GET(req: NextRequest) {
         const session = JSON.parse(dec);
         vendorId = session.vendorId || session.id || null;
       } catch {
-        vendorId = null;
+        try {
+          let b64 = rawCookie;
+          while (b64.includes('%')) b64 = decodeURIComponent(b64);
+          const session = JSON.parse(Buffer.from(b64, 'base64').toString('utf-8'));
+          vendorId = session.vendorId || session.id || null;
+        } catch {
+          vendorId = null;
+        }
       }
     }
 
