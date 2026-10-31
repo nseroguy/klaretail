@@ -54,6 +54,10 @@ export async function GET() {
         payoutStatus: v.payout_status || 'active',
         totalOrders: Number(v.total_orders || 0),
         grossSales: Number(v.gross_sales || 0),
+        isApproved: Boolean(v.is_approved),
+        status: v.status || 'pending_review',
+        sector: v.sector || 'food_beverage',
+        serviceType: v.service_type || 'dine_in_hybrid',
         createdAt: v.created_at,
       }))
     });
