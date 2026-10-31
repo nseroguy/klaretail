@@ -102,14 +102,55 @@ export async function POST(req: NextRequest) {
         WHERE id = ${po.id}::uuid;
       `);
 
-      // 5. Automatic Stock Inwarding to Retail Inventory
-      await tx.execute(sql`
-        UPDATE products p
-        SET stock_quantity = p.stock_quantity + poi.quantity
+            // 5. Automatic Stock Inwarding to Retail Store Inventory
+      const orderItemsRes: any = await tx.execute(sql`
+        SELECT poi.quantity, p.name, p.category, p.description, p.image_url, poi.unit_price
         FROM b2b_purchase_order_items poi
-        WHERE poi.purchase_order_id = ${po.id}::uuid
-          AND p.id = poi.product_id;
+        JOIN products p ON poi.product_id = p.id
+        WHERE poi.purchase_order_id = cast(${po.id} as uuid);
       `);
+      const orderItems = Array.isArray(orderItemsRes) ? orderItemsRes : orderItemsRes?.rows || [];
+
+      for (const item of orderItems) {
+        const existingProductRes: any = await tx.execute(sql`
+          SELECT id, stock_quantity FROM products
+          WHERE vendor_id = cast(${po.retail_vendor_id} as uuid)
+            AND LOWER(TRIM(name)) = LOWER(TRIM(${item.name}))
+          LIMIT 1;
+        `);
+        const existingProduct = Array.isArray(existingProductRes) ? existingProductRes[0] : existingProductRes?.rows?.[0];
+
+        if (existingProduct) {
+          await tx.execute(sql`
+            UPDATE products
+            SET stock_quantity = stock_quantity + ${item.quantity},
+                is_available = true,
+                updated_at = NOW()
+            WHERE id = cast(${existingProduct.id} as uuid);
+          `);
+        } else {
+          const suggestedRetailPrice = Math.round(Number(item.unit_price) * 1.25);
+          await tx.execute(sql`
+            INSERT INTO products (
+              id, vendor_id, name, description, category, base_price,
+              stock_quantity, track_inventory, is_available, image_url, created_at, updated_at
+            ) VALUES (
+              gen_random_uuid(),
+              cast(${po.retail_vendor_id} as uuid),
+              ${item.name},
+              ${item.description || 'Restocked via B2B Procurement'},
+              ${item.category || 'General'},
+              ${suggestedRetailPrice},
+              ${item.quantity},
+              true,
+              true,
+              ${item.image_url},
+              NOW(),
+              NOW()
+            );
+          `);
+        }
+      }
 
       return {
         orderNumber: po.order_number,
