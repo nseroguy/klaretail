@@ -204,7 +204,7 @@ export default function VendorProcurementPage() {
 
     const payload = {
       vendorSlug: 'bonus-store-kololo',
-      wholesalerVendorId: firstItem.wholesalerId,
+      wholesalerVendorId: firstItem.wholesalerId || '3da236cf-9063-4e4e-bb3c-ec4ac9c91ddb',
       paymentTerms: paymentMethod,
       deliveryAddress: 'Store Reception / Kitchen Loading Bay',
       items: cartList.map((item) => ({
