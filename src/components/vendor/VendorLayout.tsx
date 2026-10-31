@@ -21,7 +21,7 @@ import { LayoutDashboard,
   ShieldCheck,
   TrendingUp,
   Receipt,
-  Users, Wallet } from "lucide-react";
+  Users, Wallet, PackageSearch } from "lucide-react";
 
 interface VendorConfig {
   vendorName: string;
@@ -46,6 +46,19 @@ interface NavGroup {
 
 export default function VendorLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
+  const [userRole, setUserRole] = useState<string>("vendor_owner");
+
+  useEffect(() => {
+    try {
+      const match = document.cookie.match(/(?:^|;\s*)(?:staff_session|session_token)=([^;]+)/);
+      if (match) {
+        let dec = match[1];
+        while (dec.includes('%')) dec = decodeURIComponent(dec);
+        const parsed = JSON.parse(dec);
+        if (parsed.role) setUserRole(parsed.role);
+      }
+    } catch {}
+  }, []);
   const [vendor, setVendor] = useState<VendorConfig>({
     vendorName: "Bourbon Pizza Wandegeya",
     slug: "bourbon-pizza-wandegeya",
@@ -101,6 +114,11 @@ export default function VendorLayout({ children }: { children: React.ReactNode }
           visible: vendor.subCategory === "restaurant" 
         },
         { label: "Inventory Levels", href: "/vendor/inventory", icon: Boxes },
+        { 
+          label: "Stock Procurement", 
+          href: "/vendor/procurement", 
+          icon: PackageSearch
+        },
       ],
     },
     {
