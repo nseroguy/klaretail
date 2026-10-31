@@ -27,3 +27,5 @@ test_*.js
 *.spec.ts
 demurrage.log
 src/app/checkout/mock-pesapal/
+cookies.txt
+cookies.txt
