@@ -6,6 +6,22 @@ export const dynamic = 'force-dynamic';
 
 export async function GET(req: NextRequest) {
   try {
+    const rawCookie =
+      req.cookies.get('staff_session')?.value ||
+      req.cookies.get('session_token')?.value ||
+      req.cookies.get('klaretail_session')?.value;
+
+    let sessionSlug = req.nextUrl.searchParams.get('vendorSlug') || req.cookies.get('vendorSlug')?.value || null;
+    if (!sessionSlug && rawCookie) {
+      try {
+        let dec = rawCookie;
+        while (dec.includes('%')) dec = decodeURIComponent(dec);
+        const parsed = JSON.parse(dec);
+        sessionSlug = parsed.vendorSlug || parsed.slug || null;
+      } catch {}
+    }
+    const currentSlug = sessionSlug || 'bonus-store-kololo';
+
     const productsList: any = await db.execute(sql`
       SELECT 
         p.id,
@@ -22,7 +38,7 @@ export async function GET(req: NextRequest) {
       FROM products p
       JOIN vendors v ON p.vendor_id = v.id
       WHERE p.is_available = true
-        AND v.slug != COALESCE(${req.nextUrl.searchParams.get('vendorSlug') || req.cookies.get('vendorSlug')?.value || null}, 'bonus-store-kololo')
+        AND v.slug != ${currentSlug}
       ORDER BY p.created_at DESC;
     `);
 

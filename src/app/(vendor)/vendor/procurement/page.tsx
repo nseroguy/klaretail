@@ -105,9 +105,11 @@ export default function VendorProcurementPage() {
           });
           setPaymentMethod('credit_financing');
         } else {
-          setPaymentMethod('PREPAID_WALLET');
-        }
-      } catch (err) {
+        setFeedback({
+          type: 'error',
+          message: data.message || 'Failed to place purchase order. Please try again.',
+        });
+      }} catch (err) {
         console.error('Failed to query vendor credit line:', err);
         setPaymentMethod('PREPAID_WALLET');
       } finally {
