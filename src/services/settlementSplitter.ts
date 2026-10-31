@@ -71,10 +71,10 @@ export async function processSNPLSplitSettlement(
     WHERE id = ${tranche.id}::uuid;
   `);
 
-  // 3. Replenish available facility limit
+  // 3. Replenish available facility limit (capped at credit_limit)
   await db.execute(sql`
     UPDATE vendor_credit_facilities
-    SET available_credit = available_credit + ${actualSweep},
+    SET available_credit = LEAST(credit_limit, available_credit + ${actualSweep}),
         drawn_amount = GREATEST(0, drawn_amount - ${actualSweep})
     WHERE vendor_id = ${vendorId}::uuid;
   `);
