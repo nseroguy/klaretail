@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/db";
-import { vendors } from "@/db/schema";
+import { vendors, users } from "@/db/schema";
 import { sql } from "drizzle-orm";
 import crypto from "crypto";
 import fs from "fs";
@@ -208,25 +208,59 @@ export async function POST(req: NextRequest) {
       const generatedSlug = slugify(businessName);
       const passHash = hashSecret(password);
       const newVendorId = crypto.randomUUID();
-      const newUserId = crypto.randomUUID();
 
-      let createdVendor = {
-        id: newVendorId,
-        name: businessName.trim(),
-        slug: generatedSlug,
-      };
+      // Step 2a: Ensure user exists in Postgres `users` table with role 'vendor_owner'
+      let ownerUser: any = null;
+      try {
+        const existingUsers: any = await db
+          .select()
+          .from(users)
+          .where(sql`${users.phone} = ${normalizedPhone}`)
+          .limit(1);
 
+        if (existingUsers && existingUsers.length > 0) {
+          ownerUser = existingUsers[0];
+          // Upgrade or ensure role
+          await db
+            .update(users)
+            .set({ role: 'vendor_owner', updatedAt: new Date() })
+            .where(sql`${users.id} = ${ownerUser.id}`);
+        } else {
+          const newUserId = crypto.randomUUID();
+          const [createdUser]: any = await db
+            .insert(users)
+            .values({
+              id: newUserId,
+              phone: normalizedPhone,
+              role: 'vendor_owner',
+              isActive: true,
+              trustLevel: 50,
+            } as any)
+            .returning();
+          ownerUser = createdUser;
+        }
+      } catch (userErr: any) {
+        console.error("[AUTH] Error ensuring user for vendor:", userErr);
+        return NextResponse.json(
+          { success: false, message: `Failed to create merchant user record: ${userErr.message}` },
+          { status: 500 }
+        );
+      }
+
+      let createdVendor: any = null;
       try {
         const [inserted]: any = await db
           .insert(vendors)
           .values({
             id: newVendorId,
-            ownerId: newUserId,
+            ownerId: ownerUser.id,
             name: businessName.trim(),
             slug: generatedSlug,
+            latitude: "0.3476",
+            longitude: "32.5825",
             defaultSlotCapacity: 6,
             commissionBps: 1000,
-            isVerified: true,
+            isVerified: false,
             payoutStatus: "active",
             serviceType: "dine_in_hybrid",
             enableTableOrdering: true,
@@ -235,37 +269,41 @@ export async function POST(req: NextRequest) {
             subCategory: subCategory || "restaurant",
             isAcceptingOrders: false,
             isApproved: false,
-            status: "pending_approval",
+            status: "pending_review",
           } as any)
           .returning();
 
-        if (inserted) createdVendor = inserted;
-      } catch (dbErr) {
-        console.warn("[AUTH] Postgres insert failed, saving vendor locally:", dbErr);
+        createdVendor = inserted;
+      } catch (dbErr: any) {
+        console.error("[AUTH] Postgres insert failed on vendors:", dbErr);
+        return NextResponse.json(
+          { success: false, message: `Failed to create vendor in database: ${dbErr.message}` },
+          { status: 500 }
+        );
       }
 
-      // Store in disk registry isolated to this phone
+      // Keep disk registry synced for password verification fallback
       registry[normalizedPhone] = {
         passwordHash: passHash,
         vendorId: createdVendor.id,
         vendorName: createdVendor.name,
         vendorSlug: createdVendor.slug,
-        userId: newUserId,
+        userId: ownerUser.id,
         phoneNumber: normalizedPhone,
-        status: "pending_approval",
+        status: "pending_review",
         isApproved: false,
       };
       saveRegistry(registry);
 
       return NextResponse.json({
         success: true,
-        pendingApproval: true,
-        message: "Registration submitted successfully! Your account is pending Super Admin approval before you can access the merchant portal.",
+        message: "Vendor registered successfully. Awaiting Super Admin approval.",
         vendor: {
           id: createdVendor.id,
           name: createdVendor.name,
           slug: createdVendor.slug,
-          status: "pending_approval",
+          status: createdVendor.status,
+          isApproved: createdVendor.isApproved,
         },
       });
     }
