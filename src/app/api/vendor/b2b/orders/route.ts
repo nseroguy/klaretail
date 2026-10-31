@@ -12,21 +12,35 @@ export async function GET(req: NextRequest) {
       req.cookies.get('klaretail_session')?.value;
 
     let vendorId: string | null = null;
+    let vendorSlug: string | null = req.nextUrl.searchParams.get('vendorSlug') || req.cookies.get('vendorSlug')?.value || null;
+
     if (rawCookie) {
       try {
         let dec = rawCookie;
         while (dec.includes('%')) dec = decodeURIComponent(dec);
         const session = JSON.parse(dec);
-        vendorId = session.vendorId || session.id || null;
+        vendorId = session.vendorId || null;
+        if (!vendorSlug) vendorSlug = session.vendorSlug || session.slug || null;
       } catch {
         try {
           let b64 = rawCookie;
           while (b64.includes('%')) b64 = decodeURIComponent(b64);
           const session = JSON.parse(Buffer.from(b64, 'base64').toString('utf-8'));
-          vendorId = session.vendorId || session.id || null;
-        } catch {
-          vendorId = null;
-        }
+          vendorId = session.vendorId || null;
+          if (!vendorSlug) vendorSlug = session.vendorSlug || session.slug || null;
+        } catch {}
+      }
+    }
+
+    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    if (!vendorId || !uuidRegex.test(vendorId)) {
+      const slugToQuery = vendorSlug || 'bonus-store-kololo';
+      const vRes: any = await db.execute(sql`
+        SELECT id FROM vendors WHERE slug = ${slugToQuery} LIMIT 1;
+      `);
+      const row = Array.isArray(vRes) ? vRes[0] : vRes?.rows?.[0];
+      if (row) {
+        vendorId = row.id;
       }
     }
 
