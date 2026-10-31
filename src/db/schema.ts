@@ -32,6 +32,8 @@ export const restaurantServiceTypeEnum = pgEnum("restaurant_service_type", [
   "table_service_only",
 ]);
 
+
+
 import {
   pgTable,
   uuid,
@@ -749,4 +751,69 @@ export const b2bPurchaseOrderItems = pgTable("b2b_purchase_order_items", {
   quantity: integer("quantity").notNull(),
   unitPrice: integer("unit_price").notNull(),
   totalPrice: integer("total_price").notNull(),
+});
+
+
+// --- RIDERS (Dispatch Fleet) ---
+export const riders = pgTable('riders', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  userId: uuid('user_id').references(() => users.id),
+  name: varchar('name', { length: 255 }).notNull(),
+  phone: varchar('phone', { length: 32 }).notNull().unique(),
+  vehiclePlate: varchar('vehicle_plate', { length: 32 }),
+  isActive: boolean('is_active').default(true).notNull(),
+  isAvailable: boolean('is_available').default(true).notNull(),
+  currentLatitude: numeric('current_latitude', { precision: 9, scale: 6 }),
+  currentLongitude: numeric('current_longitude', { precision: 9, scale: 6 }),
+  maxCashLimit: integer('max_cash_limit').default(200000).notNull(),
+  isLocked: boolean('is_locked').default(false).notNull(),
+  walletBalance: integer('wallet_balance').default(0).notNull(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+});
+
+
+
+
+export const creditFacilityStatusEnum = pgEnum('credit_facility_status', [
+  'inactive',
+  'active',
+  'frozen',
+  'defaulted'
+]);
+
+export const creditTrancheStatusEnum = pgEnum('credit_tranche_status', [
+  'active',
+  'settled',
+  'overdue',
+  'written_off'
+]);
+
+export const vendorCreditFacilities = pgTable('vendor_credit_facilities', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  vendorId: uuid('vendor_id').references(() => vendors.id).notNull().unique(),
+  creditLimit: numeric('credit_limit', { precision: 12, scale: 2 }).default('0.00').notNull(),
+  availableCredit: numeric('available_credit', { precision: 12, scale: 2 }).default('0.00').notNull(),
+  drawnAmount: numeric('drawn_amount', { precision: 12, scale: 2 }).default('0.00').notNull(),
+  interestRateBps: integer('interest_rate_bps').default(250).notNull(),
+  maxTenorDays: integer('max_tenor_days').default(14).notNull(),
+  riskScore: integer('risk_score').default(50).notNull(),
+  autoDeductBps: integer('auto_deduct_bps').default(2000).notNull(),
+  status: creditFacilityStatusEnum('status').default('inactive').notNull(),
+  lastAssessedAt: timestamp('last_assessed_at', { withTimezone: true }).defaultNow().notNull(),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+});
+
+export const creditTranches = pgTable('credit_tranches', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  facilityId: uuid('facility_id').references(() => vendorCreditFacilities.id).notNull(),
+  vendorId: uuid('vendor_id').references(() => vendors.id).notNull(),
+  b2bOrderId: uuid('b2b_order_id').notNull(),
+  principalAmount: numeric('principal_amount', { precision: 12, scale: 2 }).notNull(),
+  feeAmount: numeric('fee_amount', { precision: 12, scale: 2 }).notNull(),
+  totalDue: numeric('total_due', { precision: 12, scale: 2 }).notNull(),
+  settledAmount: numeric('settled_amount', { precision: 12, scale: 2 }).default('0.00').notNull(),
+  dueDate: timestamp('due_date', { withTimezone: true }).notNull(),
+  status: creditTrancheStatusEnum('status').default('active').notNull(),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
 });
