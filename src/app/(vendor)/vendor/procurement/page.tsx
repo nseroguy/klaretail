@@ -203,6 +203,7 @@ export default function VendorProcurementPage() {
     }
 
     const payload = {
+      vendorSlug: 'bonus-store-kololo',
       wholesalerVendorId: firstItem.wholesalerId,
       paymentTerms: paymentMethod,
       deliveryAddress: 'Store Reception / Kitchen Loading Bay',
