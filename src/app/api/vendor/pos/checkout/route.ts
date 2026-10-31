@@ -1,3 +1,4 @@
+import { processSNPLSplitSettlement } from "@/services/settlementSplitter";
 import fs from "fs";
 import path from "path";
 import { NextRequest, NextResponse } from "next/server";
@@ -30,7 +31,7 @@ export async function POST(req: NextRequest) {
       try { session = JSON.parse(sessionCookie); } catch {}
     }
 
-    const targetSlug = session?.vendorSlug || body.vendorSlug || "bourbon-pizza-wandegeya";
+    const targetSlug = body.vendorSlug || session?.vendorSlug || "bourbon-pizza-wandegeya";
     const dbVendor = await db.query.vendors.findFirst({
       where: sql`${vendors.slug} = ${targetSlug}`,
     });
@@ -148,6 +149,7 @@ export async function POST(req: NextRequest) {
       return newOrder;
     });
 
+
     
     // Synchronize cash sales to shift ledger
     try {
@@ -239,10 +241,24 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    return NextResponse.json({ success: true, 
+    // 20% Automated SNPL Repayment Sweep for Active Credit Tranches
+    let snplSettlement: any = null;
+    try {
+      snplSettlement = await processSNPLSplitSettlement(
+        vendorId,
+        subtotal,
+        result.id
+      );
+    } catch (snplErr: any) {
+      console.warn("[SNPL_SWEEP] Non-blocking repayment sweep notice:", snplErr?.message);
+    }
+
+    return NextResponse.json({ 
+      success: true, 
       order: result, 
       sentToKitchen: requiresKitchenPrep,
-      fulfillmentType
+      fulfillmentType,
+      snplSettlement
     });
   } catch (error: any) {
     console.error("[POS_CHECKOUT_ERROR]:", error);
