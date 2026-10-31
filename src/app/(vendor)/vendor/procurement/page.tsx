@@ -208,10 +208,11 @@ export default function VendorProcurementPage() {
       paymentTerms: paymentMethod,
       deliveryAddress: 'Store Reception / Kitchen Loading Bay',
       items: cartList.map((item) => ({
-        productId: item.productId,
-        unitOfMeasure: item.unitOfMeasure,
-        quantity: item.orderQuantity,
-        unitPrice: item.tierPrice,
+        productId: item.productId || item.id,
+        name: item.name || 'Wholesale Item',
+        unitOfMeasure: item.unitOfMeasure || 'unit',
+        quantity: Number(item.orderQuantity || 1),
+        unitPrice: Number(item.tierPrice || 0),
       })),
     };
 
