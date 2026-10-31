@@ -60,7 +60,7 @@ export default function VendorProcurementPage() {
   useEffect(() => {
     async function loadCatalogData() {
       try {
-        const res = await fetch('/api/vendor/b2b/catalog');
+        const res = await fetch('/api/vendor/b2b/catalog', { credentials: 'include' });
         const data = await res.json();
         if (data.success && Array.isArray(data.items)) {
           setItems(data.items);
@@ -74,7 +74,7 @@ export default function VendorProcurementPage() {
 
     async function loadActivePOs() {
       try {
-        const res = await fetch('/api/vendor/b2b/orders');
+        const res = await fetch('/api/vendor/b2b/orders', { credentials: 'include' });
         const data = await res.json();
         if (data.success && Array.isArray(data.orders)) {
           setActivePOs(data.orders);
@@ -92,7 +92,7 @@ export default function VendorProcurementPage() {
   useEffect(() => {
     async function fetchCreditLine() {
       try {
-        const res = await fetch('/api/vendor/credit');
+        const res = await fetch('/api/vendor/credit', { credentials: 'include' });
         const data = await res.json();
         if (data.success && data.hasFacility && data.facility?.status === 'active') {
           setCreditFacility({
