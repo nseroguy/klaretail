@@ -126,6 +126,7 @@ export default function SuperAdminExecutiveConsole() {
   const [auditLogs, setAuditLogs] = useState<AuditRecord[]>([]);
   const [activeTab, setActiveTab] = useState<'approvals' | 'vendors' | 'cockpit' | 'fleet' | 'rbac' | 'audit'>('vendors');
   const [loading, setLoading] = useState(false);
+  const [processingVendorId, setProcessingVendorId] = useState<string | null>(null);
   const [authBanner, setAuthBanner] = useState<string | null>(null);
 
   // Vendor Commission Editing
@@ -502,21 +503,47 @@ export default function SuperAdminExecutiveConsole() {
 
   const handleVendorApproval = async (vendorId: string, action: "approve" | "reject" | "suspend") => {
     try {
+      setProcessingVendorId(vendorId);
+
+      // Optimistic instant UI update
+      setVendors((prev) =>
+        prev.map((v) =>
+          v.id === vendorId
+            ? {
+                ...v,
+                isApproved: action === "approve",
+                status: action === "approve" ? "active" : action === "reject" ? "rejected" : "suspended",
+                isAcceptingOrders: action === "approve",
+              }
+            : v
+        )
+      );
+
       const res = await fetch(`/api/admin/vendors/${vendorId}/approval`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        credentials: "include",
         body: JSON.stringify({ action }),
       });
       const json = await res.json();
+
       if (!res.ok || !json.success) {
-        alert(json.error || "Action failed");
+        console.error("[APPROVAL ERROR]", json);
+        // Revert by re-fetching
+        if (typeof fetchVendors === "function") await fetchVendors();
+        alert(json.error || json.message || "Failed to update vendor status");
         return;
       }
+
       if (typeof fetchVendors === "function") {
-        fetchVendors();
+        await fetchVendors();
       }
     } catch (err: any) {
-      alert(err.message || "Network error");
+      console.error("[APPROVAL NETWORK ERROR]", err);
+      if (typeof fetchVendors === "function") await fetchVendors();
+      alert(err.message || "Network communication error");
+    } finally {
+      setProcessingVendorId(null);
     }
   };
 
@@ -727,19 +754,28 @@ export default function SuperAdminExecutiveConsole() {
 
                         <div className="flex items-center gap-3 self-end md:self-center shrink-0">
                           <button
-                            onClick={() => handleVendorApproval(v.id, 'reject')}
-                            className="px-4 py-2 text-xs font-mono text-rose-400 hover:text-rose-300 bg-rose-950/20 hover:bg-rose-950/40 border border-rose-800/40 rounded-xl transition"
+                            type="button"
+                            disabled={processingVendorId === v.id}
+                            onClick={(e) => {
+                              e.preventDefault();
+                              e.stopPropagation();
+                              handleVendorApproval(v.id, 'reject');
+                            }}
+                            className="cursor-pointer px-4 py-2 text-xs font-mono text-rose-400 hover:text-rose-300 bg-rose-950/30 hover:bg-rose-950/60 border border-rose-800/40 rounded-xl transition disabled:opacity-50"
                           >
                             Reject Application
                           </button>
                           <button
-                            onClick={async () => {
-                              await handleVendorApproval(v.id, 'approve');
-                              fetchVendors();
+                            type="button"
+                            disabled={processingVendorId === v.id}
+                            onClick={(e) => {
+                              e.preventDefault();
+                              e.stopPropagation();
+                              handleVendorApproval(v.id, 'approve');
                             }}
-                            className="px-5 py-2 text-xs font-mono font-bold text-black bg-emerald-400 hover:bg-emerald-300 rounded-xl shadow-lg transition"
+                            className="cursor-pointer px-5 py-2 text-xs font-mono font-bold text-black bg-emerald-400 hover:bg-emerald-300 rounded-xl shadow-lg transition disabled:opacity-50 active:scale-95 flex items-center gap-1.5"
                           >
-                            ✓ Approve &amp; Activate Store
+                            {processingVendorId === v.id ? "Activating..." : "✓ Approve & Activate Store"}
                           </button>
                         </div>
                       </div>
