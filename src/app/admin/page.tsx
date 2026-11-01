@@ -22,6 +22,9 @@ import {
 } from 'lucide-react';
 
 interface OrderItem {
+  orderType?: 'B2C' | 'B2B';
+  wholesalerName?: string | null;
+  retailerName?: string | null;
   id: string;
   orderNumber: string;
   status: string;
@@ -97,11 +100,18 @@ export default function AdminPortalPage() {
   };
 
   const stats = useMemo(() => {
-    const pendingDispatch = orders.filter((o) => !o.assignedRiderId && o.status === 'created').length;
-    const inTransit = orders.filter((o) => o.assignedRiderId && o.status !== 'delivered').length;
-    const deliveredCount = orders.filter((o) => o.status === 'delivered').length;
+    const isPending = (status: string, riderId?: string) =>
+      !riderId && ['created', 'SUBMITTED', 'ACCEPTED'].includes(status);
+    const isInTransit = (status: string, riderId?: string) =>
+      riderId || ['rider_assigned', 'IN_TRANSIT', 'in_transit'].includes(status);
+    const isCompleted = (status: string) =>
+      ['delivered', 'DELIVERED_AND_RECEIVED'].includes(status);
+
+    const pendingDispatch = orders.filter((o) => isPending(o.status, o.assignedRiderId)).length;
+    const inTransit = orders.filter((o) => isInTransit(o.status, o.assignedRiderId) && !isCompleted(o.status)).length;
+    const deliveredCount = orders.filter((o) => isCompleted(o.status)).length;
     const totalCash = orders
-      .filter((o) => o.status === 'delivered')
+      .filter((o) => isCompleted(o.status))
       .reduce((sum, o) => sum + (Number(o.codCashReceived) || Number(o.totalAmount)), 0);
 
     return { pendingDispatch, inTransit, deliveredCount, totalCash };
@@ -109,10 +119,14 @@ export default function AdminPortalPage() {
 
   const filteredOrders = useMemo(() => {
     return orders.filter((o) => {
+      const isCompleted = ['delivered', 'DELIVERED_AND_RECEIVED'].includes(o.status);
+      const isTransit = (o.assignedRiderId || ['rider_assigned', 'IN_TRANSIT', 'in_transit'].includes(o.status)) && !isCompleted;
+      const isPending = !o.assignedRiderId && ['created', 'SUBMITTED', 'ACCEPTED'].includes(o.status);
+
       if (statusFilter === 'all') return true;
-      if (statusFilter === 'pending') return !o.assignedRiderId && o.status === 'created';
-      if (statusFilter === 'transit') return o.assignedRiderId && o.status !== 'delivered';
-      if (statusFilter === 'delivered') return o.status === 'delivered';
+      if (statusFilter === 'pending') return isPending;
+      if (statusFilter === 'transit') return isTransit;
+      if (statusFilter === 'delivered') return isCompleted;
       return true;
     });
   }, [orders, statusFilter]);
@@ -340,16 +354,29 @@ export default function AdminPortalPage() {
                 ) : (
                   filteredOrders.map((ord) => {
                     const assignedRider = riders.find((r) => r.id === ord.assignedRiderId);
-                    const isDelivered = ord.status === 'delivered';
+                    const isDelivered = ['delivered', 'DELIVERED_AND_RECEIVED'].includes(ord.status);
+                    const isB2B = ord.orderType === 'B2B' || ord.orderNumber?.startsWith('PO-');
 
                     return (
                       <tr key={ord.id} className="hover:bg-[#161B18] transition">
                         <td className="py-3.5 px-4 font-mono font-bold text-white">
-                          <Link href={`/orders/${ord.id}`} className="hover:underline text-emerald-400">
-                            {ord.orderNumber}
-                          </Link>
+                          <div className="flex items-center gap-1.5 mb-0.5">
+                            <span className="text-emerald-400">{ord.orderNumber}</span>
+                            <span className={`px-1.5 py-0.2 rounded text-[9px] font-bold ${
+                              isB2B 
+                                ? 'bg-purple-950 text-purple-300 border border-purple-800/80' 
+                                : 'bg-blue-950 text-blue-300 border border-blue-800/80'
+                            }`}>
+                              {isB2B ? 'B2B CRATES' : 'B2C RETAIL'}
+                            </span>
+                          </div>
+                          {isB2B && (ord.wholesalerName || ord.retailerName) ? (
+                            <span className="block text-[10px] text-neutral-400 font-sans truncate max-w-[200px]" title={`${ord.wholesalerName} → ${ord.retailerName}`}>
+                              {ord.wholesalerName || 'Supplier'} → {ord.retailerName || 'Retailer'}
+                            </span>
+                          ) : null}
                           <span className="block text-[10px] text-neutral-500 font-normal">
-                            {new Date(ord.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                            {new Date(ord.createdAt).toLocaleDateString([], { month: 'short', day: 'numeric' })} at {new Date(ord.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                           </span>
                         </td>
 
