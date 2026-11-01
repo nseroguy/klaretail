@@ -1,0 +1,16 @@
+name: Render Service Keepalive
+
+on:
+  schedule:
+    # Runs every 10 minutes
+    - cron: '*/10 * * * *'
+  workflow_dispatch:
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping KlaRetail Live Endpoint
+        run: |
+          curl -f -s -S -A "KlaRetail-KeepAlive/1.0" \
+            "https://retail.techaus.online/api/health" || true
