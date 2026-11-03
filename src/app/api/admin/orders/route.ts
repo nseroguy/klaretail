@@ -60,7 +60,7 @@ export async function GET() {
         po.retail_vendor_id::text AS "customerId",
         ws.name AS "wholesalerName",
         rb.name AS "retailerName",
-        pNULL::text AS "deliveryAddress",
+        po.delivery_address AS "deliveryAddress",
         po.created_at AS "createdAt"
       FROM b2b_purchase_orders po
       JOIN vendors ws ON po.wholesaler_vendor_id = ws.id
