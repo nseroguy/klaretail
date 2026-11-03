@@ -31,7 +31,7 @@ export async function GET() {
         o.customer_id::text AS "customerId",
         NULL AS "wholesalerName",
         NULL AS "retailerName",
-        o.delivery_address AS "deliveryAddress",
+        NULL::text AS "deliveryAddress",
         o.created_at AS "createdAt"
       FROM orders o
       LEFT JOIN riders r ON o.assigned_rider_id = r.id
@@ -60,7 +60,7 @@ export async function GET() {
         po.retail_vendor_id::text AS "customerId",
         ws.name AS "wholesalerName",
         rb.name AS "retailerName",
-        po.delivery_address AS "deliveryAddress",
+        pNULL::text AS "deliveryAddress",
         po.created_at AS "createdAt"
       FROM b2b_purchase_orders po
       JOIN vendors ws ON po.wholesaler_vendor_id = ws.id
