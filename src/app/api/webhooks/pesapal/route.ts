@@ -1,3 +1,4 @@
+import { executeSnplDailyMicroSweep } from '@/services/snplSweeper';
 import { NextRequest, NextResponse } from 'next/server';
 import dns from 'node:dns';
 
@@ -93,6 +94,23 @@ export async function POST(req: NextRequest) {
       `;
 
       const resolvedOrder = updatedOrders[0];
+
+      // Automated SNPL Daily Micro-Sweep
+      if (targetOrder?.vendor_id && paidAmount > 0) {
+        try {
+          const sweep = await executeSnplDailyMicroSweep(
+            targetOrder.vendor_id,
+            resolvedOrder.id,
+            paidAmount,
+            15.0
+          );
+          if (sweep.swept) {
+            console.log();
+          }
+        } catch (sweepErr: any) {
+          console.error('[SNPL SWEEP ERROR]:', sweepErr?.message || sweepErr);
+        }
+      }
 
       // 3. Trigger Cloudflare Queue delayed dispatch worker
       const dispatchWorkerUrl = process.env.DISPATCH_WORKER_URL || 'http://127.0.0.1:8787';

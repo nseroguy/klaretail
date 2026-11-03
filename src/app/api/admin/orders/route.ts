@@ -32,6 +32,14 @@ export async function GET() {
         NULL AS "wholesalerName",
         NULL AS "retailerName",
         NULL::text AS "deliveryAddress",
+        NULL::integer AS "cratesExpected",
+        NULL::integer AS "cratesDelivered",
+        NULL::integer AS "cratesReturnedEmpty",
+        0::numeric AS "crateDepositHeld",
+        0::numeric AS "creditNoteDeduction",
+        NULL::numeric AS "snplAdjustedPrincipal",
+        NULL::text AS "supplierPickupPin",
+        NULL::text AS "requiredVehicleTier",
         o.created_at AS "createdAt"
       FROM orders o
       LEFT JOIN riders r ON o.assigned_rider_id = r.id
@@ -61,6 +69,14 @@ export async function GET() {
         ws.name AS "wholesalerName",
         rb.name AS "retailerName",
         po.delivery_address AS "deliveryAddress",
+        po.crates_expected AS "cratesExpected",
+        po.crates_delivered AS "cratesDelivered",
+        po.crates_returned_empty AS "cratesReturnedEmpty",
+        COALESCE(po.crate_deposit_held, 0)::numeric AS "crateDepositHeld",
+        COALESCE(po.credit_note_deduction, 0)::numeric AS "creditNoteDeduction",
+        COALESCE(po.snpl_adjusted_principal, po.total_amount)::numeric AS "snplAdjustedPrincipal",
+        po.supplier_pickup_pin AS "supplierPickupPin",
+        po.required_vehicle_tier AS "requiredVehicleTier",
         po.created_at AS "createdAt"
       FROM b2b_purchase_orders po
       JOIN vendors ws ON po.wholesaler_vendor_id = ws.id
