@@ -143,7 +143,7 @@ export async function GET(request: NextRequest) {
       LEFT JOIN vendors ws ON po.wholesaler_vendor_id = ws.id
       LEFT JOIN vendors rb ON po.retail_vendor_id = rb.id
       WHERE po.assigned_rider_id = ${rider.id}::uuid
-        AND po.status::text IN ('ACCEPTED', 'IN_TRANSIT')
+        AND po.status::text IN ('ACCEPTED', 'IN_TRANSIT', 'DELIVERED_AND_RECEIVED')
 
       ORDER BY "createdAt" DESC;
     `);
