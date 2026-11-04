@@ -3,6 +3,7 @@
 import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import HandoverModal from '@/components/dispatch/HandoverModal';
+import B2BHandoverModal from '@/components/dispatch/B2BHandoverModal';
 
 interface RiderProfile {
   id: string;
@@ -13,20 +14,27 @@ interface RiderProfile {
   maxCashLimit: string | number;
   isActive: boolean;
   isAvailable: boolean;
+  capacityTier?: string;
 }
 
 interface AssignedOrder {
   id: string;
   orderNumber: string;
+  orderType?: 'B2C' | 'B2B';
   customerName: string;
   customerPhone: string;
   deliveryAddress: string;
   vendorName: string;
-  pickupCode: string;
+  vendorAddress?: string;
+  pickupCode?: string;
+  supplierPickupPin?: string;
+  deliveryPin?: string;
   totalAmount: number;
   codAmountDue: string | number;
   paymentMethod: string;
   status: string;
+  requiredVehicleTier?: string;
+  cratesCount?: number;
   createdAt: string;
 }
 
@@ -36,11 +44,12 @@ export default function RiderDashboardPage() {
   const [orders, setOrders] = useState<AssignedOrder[]>([]);
   const [loading, setLoading] = useState(true);
   const [togglingShift, setTogglingShift] = useState(false);
+  
+  // Modals
   const [selectedOrder, setSelectedOrder] = useState<AssignedOrder | null>(null);
   const [isHandoverOpen, setIsHandoverOpen] = useState(false);
-  const [isRemitOpen, setIsRemitOpen] = useState(false);
-  const [remitAmount, setRemitAmount] = useState('');
-  const [remitSubmitting, setRemitSubmitting] = useState(false);
+  const [selectedB2BOrder, setSelectedB2BOrder] = useState<AssignedOrder | null>(null);
+  const [isB2BModalOpen, setIsB2BModalOpen] = useState(false);
   const [notification, setNotification] = useState<string | null>(null);
 
   const loadRiderData = async () => {
@@ -64,23 +73,22 @@ export default function RiderDashboardPage() {
 
   useEffect(() => {
     loadRiderData();
+    const interval = setInterval(loadRiderData, 8000);
+    return () => clearInterval(interval);
   }, []);
 
   const handleToggleShift = async () => {
-    if (!rider || togglingShift) return;
+    if (!rider) return;
     setTogglingShift(true);
     try {
-      const target = !rider.isAvailable;
       const res = await fetch('/api/dispatch/toggle-availability', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ isAvailable: target }),
+        body: JSON.stringify({ riderId: rider.id, isAvailable: !rider.isAvailable }),
       });
       const data = await res.json();
       if (data.success) {
-        setRider({ ...rider, isAvailable: data.isAvailable });
-        setNotification(`Shift updated: You are now ${data.isAvailable ? 'AVAILABLE for jobs' : 'OFFLINE'}.`);
-        setTimeout(() => setNotification(null), 4000);
+        setRider((prev) => prev ? { ...prev, isAvailable: !prev.isAvailable } : null);
       }
     } catch (err) {
       console.error('Failed to toggle shift:', err);
@@ -89,240 +97,215 @@ export default function RiderDashboardPage() {
     }
   };
 
-  const handleRemitCash = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!remitAmount || Number(remitAmount) <= 0) return;
-    setRemitSubmitting(true);
-    try {
-      const res = await fetch('/api/dispatch/remit-cash', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ amount: Number(remitAmount) }),
-      });
-      const data = await res.json();
-      if (data.success) {
-        setNotification(`Remittance successful: UGX ${Number(remitAmount).toLocaleString()} submitted.`);
-        setIsRemitOpen(false);
-        setRemitAmount('');
-        loadRiderData();
-        setTimeout(() => setNotification(null), 5000);
-      } else {
-        alert(data.message || 'Remittance failed.');
-      }
-    } catch (err) {
-      console.error('Remittance failed:', err);
-    } finally {
-      setRemitSubmitting(false);
-    }
-  };
-
-  const handleHandoverSuccess = (orderNumber: string) => {
-    setNotification(`Order #${orderNumber} marked delivered and cash settled.`);
-    loadRiderData();
-    setTimeout(() => setNotification(null), 5000);
-  };
-
   const handleLogout = async () => {
-    document.cookie = 'staff_session=; Path=/; Expires=Thu, 01 Jan 1970 00:00:01 GMT;';
+    try {
+      await fetch('/api/dispatch/logout', { method: 'POST' });
+    } catch {}
     router.push('/dispatch/login');
   };
 
+  // Completed check: handles both lowercase B2C ('delivered', 'completed') and B2B ('DELIVERED_AND_RECEIVED')
+  const isOrderCompleted = (status: string) => {
+    const s = String(status || '').toUpperCase();
+    return s === 'DELIVERED' || s === 'DELIVERED_AND_RECEIVED' || s === 'COMPLETED' || s === 'CANCELLED';
+  };
+
+  const activeOrders = orders.filter((o) => !isOrderCompleted(o.status));
+  const completedOrders = orders.filter((o) => isOrderCompleted(o.status));
+
   if (loading) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-zinc-950 text-zinc-400 text-sm">
-        Loading Courier Console...
+      <div className="flex min-h-screen items-center justify-center bg-zinc-950 text-white font-mono text-sm">
+        <div className="flex items-center gap-3">
+          <div className="h-4 w-4 animate-spin rounded-full border-2 border-emerald-500 border-t-transparent" />
+          Loading KlaRetail Courier Terminal...
+        </div>
       </div>
     );
   }
 
-  const activeOrders = orders.filter((o) => o.status !== 'delivered');
-  const deliveredOrders = orders.filter((o) => o.status === 'delivered');
-  const balance = Number(rider?.walletBalance || 0);
-  const limit = Number(rider?.maxCashLimit || 500000);
-  const cashCapacityPercent = Math.min(Math.round((balance / limit) * 100), 100);
-
   return (
-    <div className="min-h-screen bg-zinc-950 text-zinc-100 pb-16">
-      {/* Sticky Mobile Header */}
-      <header className="sticky top-0 z-40 border-b border-zinc-800 bg-zinc-900/90 px-4 py-3 backdrop-blur-md">
-        <div className="mx-auto flex max-w-2xl items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-500/10 text-xl font-bold text-emerald-400 border border-emerald-500/20">
-              🛵
-            </div>
-            <div>
-              <h1 className="text-sm font-bold text-white">{rider?.name || 'Courier'}</h1>
-              <div className="flex items-center gap-2 text-xs text-zinc-400">
-                <span className="font-mono text-zinc-300">{rider?.vehiclePlate || 'Boda'}</span>
-                <span>•</span>
-                <span className={rider?.isAvailable ? "text-emerald-400 font-medium" : "text-amber-400 font-medium"}>
-                  {rider?.isAvailable ? '● On Duty' : '○ Offline'}
-                </span>
-              </div>
-            </div>
+    <div className="min-h-screen bg-zinc-950 text-zinc-100 pb-20">
+      {/* Header Bar */}
+      <header className="sticky top-0 z-40 border-b border-zinc-800 bg-zinc-950/90 backdrop-blur px-4 py-3 flex items-center justify-between">
+        <div className="flex items-center gap-2.5">
+          <div className="h-9 w-9 rounded-xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center text-lg">
+            🏍️
           </div>
-          
-          <div className="flex items-center gap-2">
-            <button
-              onClick={handleToggleShift}
-              disabled={togglingShift}
-              className={`rounded-lg px-2.5 py-1 text-xs font-semibold transition ${
-                rider?.isAvailable
-                  ? 'border border-amber-500/30 bg-amber-950/40 text-amber-300 hover:bg-amber-900/50'
-                  : 'border border-emerald-500/30 bg-emerald-950/40 text-emerald-300 hover:bg-emerald-900/50'
-              }`}
-            >
-              {togglingShift ? '...' : rider?.isAvailable ? 'Go Offline' : 'Go Online'}
-            </button>
-            <button
-              onClick={handleLogout}
-              className="rounded-lg border border-zinc-700 bg-zinc-800/80 px-2 py-1 text-xs text-zinc-400 hover:bg-zinc-700 transition"
-            >
-              Sign Out
-            </button>
+          <div>
+            <h1 className="text-sm font-bold text-white leading-tight">{rider?.name || 'Courier'}</h1>
+            <p className="text-[11px] font-mono text-zinc-400">{rider?.vehiclePlate} • {rider?.capacityTier || 'BODA'}</p>
           </div>
+        </div>
+
+        <div className="flex items-center gap-2">
+          <button
+            onClick={handleToggleShift}
+            disabled={togglingShift}
+            className={`px-3 py-1 rounded-full text-xs font-semibold transition ${
+              rider?.isAvailable
+                ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
+                : 'bg-zinc-800 text-zinc-400 border border-zinc-700'
+            }`}
+          >
+            {rider?.isAvailable ? '● On Duty' : '○ Off Duty'}
+          </button>
+          <button
+            onClick={handleLogout}
+            className="p-1.5 rounded-lg border border-zinc-800 text-zinc-400 hover:text-white transition text-xs"
+          >
+            Sign Out
+          </button>
         </div>
       </header>
 
-      <main className="mx-auto max-w-2xl px-4 pt-4 space-y-4">
-        {/* Banner Notification */}
+      <main className="max-w-xl mx-auto p-4 space-y-4">
         {notification && (
-          <div className="rounded-xl border border-emerald-500/30 bg-emerald-950/40 p-3 text-xs text-emerald-300 flex items-center justify-between">
+          <div className="rounded-xl bg-emerald-500/10 border border-emerald-500/20 p-3 text-xs text-emerald-300 flex justify-between items-center">
             <span>{notification}</span>
-            <button onClick={() => setNotification(null)} className="text-zinc-500 hover:text-white">✕</button>
+            <button onClick={() => setNotification(null)} className="text-zinc-400 hover:text-white">✕</button>
           </div>
         )}
 
-        {/* Courier Cash & Metrics Card */}
-        <div className="rounded-2xl border border-zinc-800 bg-zinc-900 p-4 shadow-sm space-y-3">
-          <div className="flex items-start justify-between">
-            <div>
-              <p className="text-[11px] font-semibold uppercase tracking-wider text-zinc-400">COD Cash On Hand</p>
-              <p className="mt-1 text-2xl font-mono font-bold text-emerald-400">
-                UGX {balance.toLocaleString()}
-              </p>
-              <p className="mt-0.5 text-[11px] text-zinc-500">
-                Max Threshold: UGX {limit.toLocaleString()}
-              </p>
-            </div>
-            <button
-              onClick={() => setIsRemitOpen(true)}
-              className="rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-3 py-1.5 text-xs font-semibold text-emerald-400 hover:bg-emerald-500/20 transition"
-            >
-              Remit Cash
+        {/* Active Dispatches */}
+        <div className="space-y-3">
+          <div className="flex items-center justify-between">
+            <h2 className="text-xs font-bold uppercase tracking-wider text-zinc-400">
+              Active Dispatches ({activeOrders.length})
+            </h2>
+            <button onClick={loadRiderData} className="text-xs text-emerald-400 hover:underline">
+              Refresh
             </button>
           </div>
 
-          <div className="space-y-1">
-            <div className="flex justify-between text-[10px] text-zinc-400">
-              <span>Holding Capacity</span>
-              <span>{cashCapacityPercent}%</span>
-            </div>
-            <div className="h-2 w-full rounded-full bg-zinc-800 overflow-hidden">
-              <div 
-                className={`h-full transition-all ${cashCapacityPercent > 80 ? 'bg-amber-500' : 'bg-emerald-500'}`} 
-                style={{ width: `${cashCapacityPercent}%` }}
-              />
-            </div>
-          </div>
-        </div>
-
-        {/* Active Runs Section */}
-        <div>
-          <div className="flex items-center justify-between mb-2">
-            <h2 className="text-xs font-bold uppercase tracking-wider text-zinc-400">
-              Active Deliveries ({activeOrders.length})
-            </h2>
-            <span className="text-[11px] text-zinc-500">
-              {deliveredOrders.length} completed shift
-            </span>
-          </div>
-
           {activeOrders.length === 0 ? (
-            <div className="rounded-xl border border-zinc-800 bg-zinc-900/40 p-8 text-center text-xs text-zinc-500 space-y-1">
-              <p className="text-base">🛵</p>
-              <p className="font-semibold text-zinc-400">All clear! No active runs.</p>
-              <p className="text-[11px]">Keep your shift online to receive new dispatch alerts.</p>
+            <div className="rounded-2xl border border-zinc-900 bg-zinc-900/40 p-8 text-center text-zinc-500">
+              <p className="text-sm">No dispatches currently assigned.</p>
+              <p className="text-xs mt-1 text-zinc-600">Assigned deliveries will appear here automatically.</p>
             </div>
           ) : (
             <div className="space-y-3">
-              {activeOrders.map((ord) => (
-                <div
-                  key={ord.id}
-                  className="rounded-2xl border border-zinc-800 bg-zinc-900 p-4 shadow-lg space-y-3"
-                >
-                  <div className="flex items-start justify-between">
-                    <div>
-                      <span className="rounded bg-zinc-800 px-2 py-0.5 text-[10px] font-mono font-bold text-emerald-400">
-                        #{ord.orderNumber}
+              {activeOrders.map((ord) => {
+                const isB2B = ord.orderType === 'B2B';
+                return (
+                  <div
+                    key={ord.id}
+                    className="rounded-2xl border border-zinc-800 bg-zinc-900/90 p-4 space-y-3 shadow-lg"
+                  >
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <span className="font-mono text-sm font-bold text-white">#{ord.orderNumber}</span>
+                        {isB2B ? (
+                          <span className="rounded-full bg-purple-500/10 border border-purple-500/20 px-2 py-0.5 text-[10px] font-bold text-purple-300 uppercase">
+                            B2B • {ord.cratesCount || 0} Crates
+                          </span>
+                        ) : (
+                          <span className="rounded-full bg-cyan-500/10 border border-cyan-500/20 px-2 py-0.5 text-[10px] font-bold text-cyan-300 uppercase">
+                            B2C Retail
+                          </span>
+                        )}
+                      </div>
+                      <span className={`text-[11px] font-bold uppercase ${
+                        ord.status === 'IN_TRANSIT' ? 'text-cyan-400' : 'text-amber-400'
+                      }`}>
+                        {ord.status.replace(/_/g, ' ')}
                       </span>
-                      <p className="mt-1 text-xs text-zinc-400">
-                        From: <span className="text-white font-medium">{ord.vendorName}</span>
-                      </p>
-                      <h3 className="text-sm font-semibold text-white">To: {ord.customerName}</h3>
-                    </div>
-                    <div className="text-right">
-                      <span className="text-sm font-mono font-bold text-zinc-100">
-                        UGX {Number(ord.codAmountDue || ord.totalAmount).toLocaleString()}
-                      </span>
-                      <p className="text-[10px] uppercase font-semibold text-emerald-400">
-                        {ord.paymentMethod === 'CASH_ON_DELIVERY' ? 'Collect COD' : 'Prepaid'}
-                      </p>
-                    </div>
-                  </div>
-
-                  <div className="grid grid-cols-2 gap-2 text-xs">
-                    <div className="rounded-lg bg-zinc-950/60 p-2.5">
-                      <span className="text-[10px] text-zinc-500 font-semibold uppercase block">Step 1: Pickup</span>
-                      <p className="text-zinc-300 font-medium truncate">{ord.vendorName}</p>
-                      <span className="font-mono text-zinc-400 text-[11px]">Code: {ord.pickupCode || '---'}</span>
                     </div>
 
-                    <div className="rounded-lg bg-zinc-950/60 p-2.5">
-                      <span className="text-[10px] text-zinc-500 font-semibold uppercase block">Step 2: Drop-off</span>
-                      <p className="text-zinc-300 font-medium truncate">{ord.deliveryAddress}</p>
-                      <span className="text-emerald-400 text-[11px] font-medium">Verify Customer PIN</span>
+                    {/* Routing Details */}
+                    <div className="grid grid-cols-2 gap-2 text-xs">
+                      <div className="rounded-xl bg-zinc-950/70 p-2.5 border border-zinc-800/60">
+                        <span className="text-[10px] text-zinc-500 font-semibold uppercase block">
+                          {isB2B ? 'Step 1: Supplier Dock' : 'Step 1: Pickup'}
+                        </span>
+                        <p className="text-zinc-200 font-medium truncate mt-0.5">{ord.vendorName}</p>
+                        <span className="font-mono text-zinc-400 text-[11px]">
+                          {isB2B ? 'Require Vendor PIN' : `Code: ${ord.pickupCode || '---'}`}
+                        </span>
+                      </div>
+
+                      <div className="rounded-xl bg-zinc-950/70 p-2.5 border border-zinc-800/60">
+                        <span className="text-[10px] text-zinc-500 font-semibold uppercase block">
+                          {isB2B ? 'Step 2: Retail Store' : 'Step 2: Drop-off'}
+                        </span>
+                        <p className="text-zinc-200 font-medium truncate mt-0.5">{ord.customerName}</p>
+                        <span className="text-emerald-400 text-[11px] font-medium truncate block">
+                          {ord.deliveryAddress}
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* Verification Actions */}
+                    <div className="pt-1">
+                      {isB2B ? (
+                        ord.status !== 'IN_TRANSIT' ? (
+                          <button
+                            onClick={() => {
+                              setSelectedB2BOrder(ord);
+                              setIsB2BModalOpen(true);
+                            }}
+                            className="w-full rounded-xl bg-amber-600 hover:bg-amber-500 py-3 px-4 text-xs font-bold text-white transition flex items-center justify-center gap-2 shadow-lg shadow-amber-900/20"
+                          >
+                            <span>🏭</span> Verify Loading Bay Pickup (Enter Vendor PIN)
+                          </button>
+                        ) : (
+                          <button
+                            onClick={() => {
+                              setSelectedB2BOrder(ord);
+                              setIsB2BModalOpen(true);
+                            }}
+                            className="w-full rounded-xl bg-emerald-600 hover:bg-emerald-500 py-3 px-4 text-xs font-bold text-white transition flex items-center justify-center gap-2 shadow-lg shadow-emerald-900/20"
+                          >
+                            <span>📦</span> Complete Store Handover ({ord.cratesCount || 0} Crates + Store PIN)
+                          </button>
+                        )
+                      ) : (
+                        <div className="flex gap-2">
+                          <a
+                            href={`tel:${ord.customerPhone}`}
+                            className="flex-1 rounded-xl border border-zinc-700 bg-zinc-800/80 py-2.5 text-center text-xs font-semibold text-zinc-200 hover:bg-zinc-700 transition"
+                          >
+                            📞 Call
+                          </a>
+                          <button
+                            onClick={() => {
+                              setSelectedOrder(ord);
+                              setIsHandoverOpen(true);
+                            }}
+                            className="flex-1 rounded-xl bg-emerald-600 py-2.5 text-center text-xs font-semibold text-white shadow-md hover:bg-emerald-500 transition"
+                          >
+                            Verify Handover PIN
+                          </button>
+                        </div>
+                      )}
                     </div>
                   </div>
-
-                  <div className="flex gap-2 pt-1">
-                    <a
-                      href={`tel:${ord.customerPhone}`}
-                      className="flex-1 rounded-xl border border-zinc-700 bg-zinc-800/80 py-2.5 text-center text-xs font-semibold text-zinc-200 hover:bg-zinc-700 transition"
-                    >
-                      📞 Call Customer
-                    </a>
-                    <button
-                      onClick={() => {
-                        setSelectedOrder(ord);
-                        setIsHandoverOpen(true);
-                      }}
-                      className="flex-1 rounded-xl bg-emerald-600 py-2.5 text-center text-xs font-semibold text-white shadow-md hover:bg-emerald-500 transition"
-                    >
-                      Verify Handover PIN
-                    </button>
-                  </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </div>
 
-        {/* Completed Runs Section */}
-        {deliveredOrders.length > 0 && (
-          <div className="pt-2">
+        {/* Completed Dispatches Section */}
+        {completedOrders.length > 0 && (
+          <div className="pt-4">
             <h2 className="text-xs font-bold uppercase tracking-wider text-zinc-500 mb-2">
-              Completed Today ({deliveredOrders.length})
+              Completed Today ({completedOrders.length})
             </h2>
             <div className="space-y-2">
-              {deliveredOrders.slice(0, 5).map((ord) => (
+              {completedOrders.slice(0, 5).map((ord) => (
                 <div
                   key={ord.id}
                   className="flex items-center justify-between rounded-xl border border-zinc-900 bg-zinc-900/40 px-3.5 py-2.5 text-xs"
                 >
                   <div>
-                    <span className="font-mono text-zinc-400 font-medium">#{ord.orderNumber}</span>
-                    <p className="text-[11px] text-zinc-500">{ord.customerName}</p>
+                    <div className="flex items-center gap-2">
+                      <span className="font-mono text-zinc-400 font-medium">#{ord.orderNumber}</span>
+                      <span className="text-[10px] px-1.5 py-0.2 rounded bg-zinc-800 text-zinc-400">
+                        {ord.orderType || 'B2C'}
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-zinc-500 mt-0.5">{ord.customerName}</p>
                   </div>
                   <div className="text-right">
                     <span className="text-emerald-400 font-medium">Delivered</span>
@@ -337,53 +320,33 @@ export default function RiderDashboardPage() {
         )}
       </main>
 
-      {/* Cash Remittance Modal */}
-      {isRemitOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
-          <div className="w-full max-w-sm rounded-2xl bg-zinc-900 p-6 shadow-2xl border border-zinc-800 text-white space-y-4">
-            <div className="flex items-center justify-between">
-              <h3 className="text-base font-bold">Remit Collected Cash</h3>
-              <button onClick={() => setIsRemitOpen(false)} className="text-zinc-400 hover:text-white">✕</button>
-            </div>
-            <p className="text-xs text-zinc-400">
-              Submit COD cash to clear your wallet balance of <strong className="text-emerald-400">UGX {balance.toLocaleString()}</strong>.
-            </p>
-            <form onSubmit={handleRemitCash} className="space-y-4">
-              <div>
-                <label className="block text-[11px] font-semibold uppercase tracking-wider text-zinc-400">
-                  Amount to Remit (UGX)
-                </label>
-                <input
-                  type="number"
-                  max={balance}
-                  value={remitAmount}
-                  onChange={(e) => setRemitAmount(e.target.value)}
-                  placeholder={`Max: ${balance}`}
-                  required
-                  className="mt-1 w-full rounded-xl border border-zinc-700 bg-zinc-950 px-3.5 py-2.5 text-sm font-semibold text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                />
-              </div>
-              <button
-                type="submit"
-                disabled={remitSubmitting || !remitAmount || Number(remitAmount) <= 0}
-                className="w-full rounded-xl bg-emerald-600 py-3 text-sm font-semibold text-white shadow hover:bg-emerald-500 disabled:opacity-50 transition"
-              >
-                {remitSubmitting ? 'Recording Remittance...' : 'Submit Remittance'}
-              </button>
-            </form>
-          </div>
-        </div>
-      )}
-
-      {/* PIN Handover Modal */}
+      {/* B2C Handover Modal */}
       <HandoverModal
-        order={selectedOrder}
         isOpen={isHandoverOpen}
         onClose={() => {
           setIsHandoverOpen(false);
           setSelectedOrder(null);
         }}
-        onDelivered={handleHandoverSuccess}
+        order={selectedOrder}
+        onDelivered={(ordNum) => {
+          setNotification(`Order #${ordNum} delivered successfully!`);
+          loadRiderData();
+        }}
+      />
+
+      {/* B2B Two-Leg Receiving Modal */}
+      <B2BHandoverModal
+        isOpen={isB2BModalOpen}
+        onClose={() => {
+          setIsB2BModalOpen(false);
+          setSelectedB2BOrder(null);
+        }}
+        order={selectedB2BOrder}
+        riderId={rider?.id || ''}
+        onSuccess={(msg) => {
+          setNotification(msg);
+          loadRiderData();
+        }}
       />
     </div>
   );
