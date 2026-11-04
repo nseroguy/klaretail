@@ -32,7 +32,7 @@ export async function GET(req: NextRequest) {
         v.name AS "wholesalerName",
         'crates' AS "unitOfMeasure",
         1 AS "minOrderQuantity",
-        p.base_price::numeric AS "tierPrice",
+        p.base_price::numeric AS "rawBasePrice",
         p.stock_quantity AS "stockUnitsAvailable",
         p.image_url AS "imageUrl"
       FROM products p
@@ -44,14 +44,39 @@ export async function GET(req: NextRequest) {
 
     const items = Array.isArray(productsList) ? productsList : productsList?.rows || [];
 
-    return NextResponse.json({
-      success: true,
-      items: items.map((item: any) => ({
-        ...item,
-        tierPrice: Number(item.tierPrice),
+    const mappedItems = items.map((item: any) => {
+      const rawPrice = Number(item.rawBasePrice || 0);
+      // 1% embedded listing buffer (100 bps)
+      const markupAmount = Math.round(rawPrice * 0.01);
+      const visibleTierPrice = rawPrice + markupAmount;
+
+      return {
+        id: item.id,
+        productId: item.productId,
+        name: item.name,
+        category: item.category,
+        wholesalerId: item.wholesalerId,
+        wholesalerName: item.wholesalerName,
+        unitOfMeasure: item.unitOfMeasure,
         minOrderQuantity: Number(item.minOrderQuantity || 1),
         stockUnitsAvailable: Number(item.stockUnitsAvailable || 0),
-      })),
+        imageUrl: item.imageUrl,
+        // Visible customer-facing price (inclusive of 1% buffer)
+        tierPrice: visibleTierPrice,
+        // Internal audit & settlement fields
+        rawWholesalePrice: rawPrice,
+        listingMarkupAmount: markupAmount,
+        catalogMarkupBps: 100,
+      };
+    });
+
+    return NextResponse.json({
+      success: true,
+      pricingPolicy: {
+        markupBps: 100,
+        description: 'Displayed tierPrice includes embedded 1% platform listing buffer.',
+      },
+      items: mappedItems,
     });
   } catch (error: any) {
     return NextResponse.json({ success: false, message: error.message }, { status: 500 });
