@@ -817,3 +817,64 @@ export const creditTranches = pgTable('credit_tranches', {
   status: creditTrancheStatusEnum('status').default('active').notNull(),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
 });
+
+export interface CargoSpecs {
+  totalWeightKg: number;
+  totalVolumeCbm: number;
+  totalPackages: number;
+  returnableUnits: number;
+  nonReturnableUnits: number;
+  handlingFee: number;
+  recommendedVehicle: 'BODA' | 'CARGO_TUK_TUK' | 'PICKUP_1T' | 'TRUCK_3T';
+}
+
+export function evaluateOrderCargo(items: Array<{
+  quantity: number;
+  packageType: string;
+  isReturnable: boolean;
+  unitWeightKg: number;
+  unitVolumeCbm: number;
+}>): CargoSpecs {
+  let totalWeightKg = 0;
+  let totalVolumeCbm = 0;
+  let totalPackages = 0;
+  let returnableUnits = 0;
+  let nonReturnableUnits = 0;
+  let handlingFee = 0;
+
+  for (const item of items) {
+    const qty = Number(item.quantity || 0);
+    totalPackages += qty;
+    totalWeightKg += qty * Number(item.unitWeightKg || 1);
+    totalVolumeCbm += qty * Number(item.unitVolumeCbm || 0.005);
+
+    if (item.isReturnable) {
+      returnableUnits += qty;
+      handlingFee += qty * 500; // UGX 500 for crate wash/track
+    } else {
+      nonReturnableUnits += qty;
+      // Heavier sacks (50kg+) incur offload labor; light boxes incur nominal fee
+      handlingFee += item.packageType.startsWith('SACK') ? qty * 1000 : qty * 300;
+    }
+  }
+
+  let recommendedVehicle: 'BODA' | 'CARGO_TUK_TUK' | 'PICKUP_1T' | 'TRUCK_3T' = 'BODA';
+
+  if (totalWeightKg > 1000 || totalVolumeCbm > 3.8) {
+    recommendedVehicle = 'TRUCK_3T';
+  } else if (totalWeightKg > 450 || totalVolumeCbm > 1.5) {
+    recommendedVehicle = 'PICKUP_1T';
+  } else if (totalWeightKg > 60 || totalVolumeCbm > 0.15) {
+    recommendedVehicle = 'CARGO_TUK_TUK';
+  }
+
+  return {
+    totalWeightKg,
+    totalVolumeCbm,
+    totalPackages,
+    returnableUnits,
+    nonReturnableUnits,
+    handlingFee,
+    recommendedVehicle
+  };
+}
