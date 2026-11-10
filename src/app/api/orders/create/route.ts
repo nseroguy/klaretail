@@ -33,7 +33,14 @@ export async function POST(request: NextRequest) {
       taxId = null,
       items = [],
       subtotal: clientSubtotal,
-      deliveryFee: clientDeliveryFee
+      deliveryFee: rawDeliveryFee,
+      delivery_fee: altDeliveryFee,
+      serviceFee: rawServiceFee,
+      service_fee: altServiceFee,
+      damageProtectionFee: rawDamageFee,
+      damage_protection_fee: altDamageFee,
+      convenienceFee: rawConvenienceFee,
+      convenience_fee: altConvenienceFee
     } = body;
 
     // 1. Resolve Target Vendor
@@ -97,14 +104,23 @@ export async function POST(request: NextRequest) {
         const pId = item.id || item.productId;
         const qty = Number(item.quantity || 1);
 
-        // Fetch authoritative product data from database
+        // Fetch authoritative product data from database safely (guard against non-UUID mock/SKU IDs)
+        const isUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(pId || "").trim());
+
         const pRes: any = await db.execute(sql`
           SELECT id::text AS id, name, base_price::numeric AS "basePrice", wholesale_price::numeric AS "wholesalePrice", moq, tier_pricing AS "tierPricing"
           FROM products
-          WHERE id = ${pId}::uuid
+          WHERE ${isUUID ? sql`id = ${pId}::uuid` : sql`sku = ${String(pId)} OR id::text = ${String(pId)}`}
           LIMIT 1;
         `);
         const product = Array.isArray(pRes) ? pRes[0] : pRes?.rows?.[0];
+
+        if (!product) {
+          return NextResponse.json({
+            success: false,
+            message: `Item "${item.name || pId}" is no longer available. Please clear your cart and select from the active catalog.`
+          }, { status: 400 });
+        }
 
         let unitPrice = Number(item.price || item.unitPrice || 0);
 
@@ -130,8 +146,8 @@ export async function POST(request: NextRequest) {
               }
             }
 
-            // Customer pays base wholesale price + 2% platform markup
-            unitPrice = Math.round(vendorUnitPrice * 1.02);
+            // Customer pays item catalog price if provided (incorporating listing markup/buffer) or base wholesale + 2% platform markup
+            unitPrice = item.price ? Number(item.price) : Math.round(vendorUnitPrice * 1.02);
 
             const lineTotal = unitPrice * qty;
             computedSubtotal += lineTotal;
@@ -166,8 +182,13 @@ export async function POST(request: NextRequest) {
       computedSubtotal = clientSubtotal !== undefined ? Number(clientSubtotal) : 38000;
     }
 
-    const deliveryFee = clientDeliveryFee !== undefined ? Number(clientDeliveryFee) : (channel === 'wholesale' ? 15000 : 3000);
-    const totalAmount = computedSubtotal + deliveryFee;
+    const clientDeliveryFee = rawDeliveryFee ?? altDeliveryFee;
+    const deliveryFee = clientDeliveryFee !== undefined && clientDeliveryFee !== null ? Number(clientDeliveryFee) : (channel === 'wholesale' ? 15000 : 3000);
+    const serviceFee = Number(rawServiceFee ?? altServiceFee ?? 0);
+    const damageProtectionFee = Number(rawDamageFee ?? altDamageFee ?? 0);
+    const convenienceFee = Number(rawConvenienceFee ?? altConvenienceFee ?? 0);
+
+    const totalAmount = computedSubtotal + deliveryFee + serviceFee + damageProtectionFee + convenienceFee;
 
     const randomSuffix = Math.floor(1000 + Math.random() * 9000);
     const dateStr = new Date().toISOString().slice(0, 10).replace(/-/g, '');
@@ -210,9 +231,9 @@ export async function POST(request: NextRequest) {
         'accepted'::order_status,
         ${computedSubtotal},
         ${deliveryFee},
-        0,
-        0,
-        0,
+        ${serviceFee},
+        ${damageProtectionFee},
+        ${convenienceFee},
         ${totalAmount},
         ${paymentMethod},
         ${deliveryPin},
